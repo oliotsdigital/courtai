@@ -15,7 +15,7 @@ interface TranscriptEditorProps {
   transcript: string;
   onChange: (value: string) => void;
   onClear: () => void;
-  onLoadSample: () => void;
+  onLoadSample: (type?: "combined" | "english") => void;
   caseMeta: CourtCaseMeta;
   disabled?: boolean;
 }
@@ -80,51 +80,48 @@ export const TranscriptEditor: React.FC<TranscriptEditorProps> = ({
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex flex-col w-full">
       {/* Editor Header Bar */}
-      <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="bg-slate-50 border-b border-slate-200 px-3.5 sm:px-4 py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div className="flex items-center space-x-2">
           <span className="text-xs font-bold uppercase tracking-wider text-court-800">
-            Live Transcript & Draft Order
+            Live Transcript &amp; Order Draft
           </span>
-          <span className="text-xs text-slate-400 font-mono">
-            (Editable Area)
+          <span className="text-[11px] text-slate-500 font-medium">
+            (संपादकीय मसुदा)
           </span>
         </div>
 
-        <div className="flex items-center space-x-2">
-          {/* Quick Fallback Sample Button */}
+        {/* Quick Sample Fallback Buttons */}
+        <div className="flex items-center gap-1.5 self-start sm:self-auto">
           <button
             type="button"
-            onClick={onLoadSample}
-            title="Load sample legal text for offline demonstration fallback"
-            className="text-xs font-medium text-slate-600 hover:text-court-700 bg-white border border-slate-200 hover:border-court-300 rounded px-2.5 py-1 transition-colors flex items-center gap-1 shadow-2xs"
+            onClick={() => onLoadSample("combined")}
+            title="Load bilingual English + Marathi sample"
+            className="text-xs font-medium text-slate-700 hover:text-court-700 bg-white border border-slate-200 hover:border-court-300 rounded-md px-2.5 py-1.5 transition-colors flex items-center gap-1 shadow-2xs min-h-[36px]"
           >
             <RotateCcw className="w-3 h-3 text-slate-400" />
-            <span>Load Sample Transcript</span>
-            <span className="text-[10px] bg-slate-100 text-slate-500 font-semibold px-1 rounded">
-              Demo Sample
-            </span>
+            <span>Sample (मराठी + Eng)</span>
           </button>
         </div>
       </div>
 
-      {/* Text Area */}
-      <div className="relative p-4 flex-1">
+      {/* Text Area (16px text-base on mobile prevents iOS auto-zoom) */}
+      <div className="relative p-3 sm:p-4 flex-1">
         <textarea
           value={transcript}
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
-          placeholder="Transcription will appear here automatically as you dictate... You can also edit, format, or type directly into this court draft."
-          rows={10}
-          className="w-full h-64 sm:h-72 p-3 text-base leading-relaxed text-slate-900 placeholder:text-slate-400 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-court-600 focus:border-court-600 resize-y font-normal font-sans"
+          placeholder="Transcription will appear here automatically as you dictate in English, Marathi (मराठी), or both combined... You can also edit or touch-type directly into this court record."
+          rows={8}
+          className="w-full min-h-[220px] sm:min-h-[260px] p-3 text-base leading-relaxed text-slate-900 placeholder:text-slate-400 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-court-600 focus:border-court-600 resize-y font-normal font-sans"
         />
       </div>
 
       {/* Editor Footer & Action Bar */}
-      <div className="bg-slate-50 border-t border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="bg-slate-50 border-t border-slate-200 px-3.5 sm:px-4 py-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         {/* Word and Character Count */}
-        <div className="flex items-center space-x-4 text-xs font-medium text-slate-500">
+        <div className="flex items-center justify-between sm:justify-start space-x-4 text-xs font-medium text-slate-500">
           <span>
             Words: <strong className="text-slate-800">{stats.wordCount}</strong>
           </span>
@@ -134,17 +131,17 @@ export const TranscriptEditor: React.FC<TranscriptEditorProps> = ({
           </span>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Action Buttons (Touch-friendly & responsive wrap on mobile) */}
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
           {/* Clear */}
           <button
             type="button"
             onClick={onClear}
             disabled={!transcript}
-            className="px-3 py-1.5 text-xs font-semibold text-slate-700 hover:text-red-700 bg-white hover:bg-red-50 border border-slate-200 hover:border-red-200 rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:pointer-events-none"
+            className="px-3 py-2 text-xs font-semibold text-slate-700 hover:text-red-700 bg-white hover:bg-red-50 border border-slate-200 hover:border-red-200 rounded-lg transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:pointer-events-none min-h-[40px]"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span>Clear</span>
+            <span>Clear / साफ</span>
           </button>
 
           {/* Copy Text */}
@@ -152,7 +149,7 @@ export const TranscriptEditor: React.FC<TranscriptEditorProps> = ({
             type="button"
             onClick={handleCopy}
             disabled={!transcript}
-            className="px-3 py-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:pointer-events-none"
+            className="px-3 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:pointer-events-none min-h-[40px]"
           >
             {copied ? (
               <>
@@ -162,7 +159,7 @@ export const TranscriptEditor: React.FC<TranscriptEditorProps> = ({
             ) : (
               <>
                 <Copy className="w-3.5 h-3.5" />
-                <span>Copy Text</span>
+                <span>Copy / कॉपी</span>
               </>
             )}
           </button>
@@ -172,7 +169,7 @@ export const TranscriptEditor: React.FC<TranscriptEditorProps> = ({
             type="button"
             onClick={handleDownloadTxt}
             disabled={!transcript}
-            className="px-3 py-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:pointer-events-none"
+            className="px-3 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:pointer-events-none min-h-[40px]"
           >
             <FileText className="w-3.5 h-3.5" />
             <span>Download TXT</span>
@@ -183,10 +180,10 @@ export const TranscriptEditor: React.FC<TranscriptEditorProps> = ({
             type="button"
             onClick={handleDownloadDocx}
             disabled={!transcript || isExportingDocx}
-            className="px-3 py-1.5 text-xs font-semibold text-court-700 hover:text-court-800 bg-court-50 hover:bg-court-100 border border-court-200 rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:pointer-events-none"
+            className="px-3 py-2 text-xs font-semibold text-court-700 hover:text-court-800 bg-court-50 hover:bg-court-100 border border-court-200 rounded-lg transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:pointer-events-none min-h-[40px]"
           >
             <FileDown className="w-3.5 h-3.5 text-court-600" />
-            <span>{isExportingDocx ? "Generating DOCX..." : "Download DOCX"}</span>
+            <span>{isExportingDocx ? "Generating..." : "Download DOCX"}</span>
           </button>
 
           {/* Print / Save as PDF */}
@@ -194,10 +191,10 @@ export const TranscriptEditor: React.FC<TranscriptEditorProps> = ({
             type="button"
             onClick={handlePrintPdf}
             disabled={!transcript}
-            className="px-3.5 py-1.5 text-xs font-semibold text-white bg-court-700 hover:bg-court-800 rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs disabled:opacity-40 disabled:pointer-events-none"
+            className="col-span-2 sm:col-span-1 px-3.5 py-2 text-xs font-semibold text-white bg-court-700 hover:bg-court-800 rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs disabled:opacity-40 disabled:pointer-events-none min-h-[40px]"
           >
             <Printer className="w-3.5 h-3.5" />
-            <span>Print / Save as PDF</span>
+            <span>Print / PDF (प्रिंट)</span>
           </button>
         </div>
       </div>

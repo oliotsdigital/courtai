@@ -18,22 +18,25 @@ import { DemoScript } from "@/components/DemoScript";
 import { DocumentPrintView } from "@/components/DocumentPrintView";
 import { CourtFooter } from "@/components/CourtFooter";
 import { getSupportedAudioMimeType, mergeTranscriptChunks } from "@/lib/audio";
-import { normalizeLegalTranscript } from "@/lib/legalNormalizer";
 
-const SAMPLE_FALLBACK_TRANSCRIPT = `The Applicant has filed an application under Section 144 of the CPC.
+const SAMPLE_COMBINED_TRANSCRIPT = `The Applicant ने Section 144 of the CPC अन्वये अर्ज दाखल केला आहे.
+
+The Respondent ला Hon'ble Court समोर हजर राहण्याचे आदेश देण्यात येत आहेत.`;
+
+const SAMPLE_ENGLISH_TRANSCRIPT = `The Applicant has filed an application under Section 144 of the CPC.
 
 The Respondent is directed to appear before the Court.`;
 
 const CHUNK_INTERVAL_MS = 6000; // 6 seconds chunks for live legal dictation feel
 
 export default function CourtAiPage() {
-  // Main states
+  // Main states - default to English + Marathi mixed bilingual recognition
   const [isRecording, setIsRecording] = useState(false);
   const [dictationState, setDictationState] = useState<DictationState>("idle");
-  const [statusMessage, setStatusMessage] = useState("Ready");
+  const [statusMessage, setStatusMessage] = useState("Ready / तयार");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const [language, setLanguage] = useState<SupportedLanguage>("auto");
+  const [language, setLanguage] = useState<SupportedLanguage>("mixed");
   const [mode, setMode] = useState<TranscriptionMode>("court_draft");
   const [transcript, setTranscript] = useState("");
 
@@ -48,7 +51,6 @@ export default function CourtAiPage() {
   // Send an audio blob chunk to /api/transcribe
   const transcribeAudioChunk = useCallback(
     async (audioBlob: Blob, chunkNumber: number) => {
-      // Don't send empty or tiny silence blobs (< 1KB)
       if (audioBlob.size < 1000) {
         return;
       }
@@ -79,12 +81,12 @@ export default function CourtAiPage() {
           setTranscript((prev) =>
             mergeTranscriptChunks(prev, newRawText, mode)
           );
-          setStatusMessage("Transcript updated.");
+          setStatusMessage("Transcript updated / मसुदा अद्यतनित झाला.");
           if (!isRecordingRef.current) {
             setDictationState("success");
             setTimeout(() => {
               setDictationState("idle");
-              setStatusMessage("Ready");
+              setStatusMessage("Ready / तयार");
             }, 2500);
           }
         }
@@ -135,7 +137,6 @@ export default function CourtAiPage() {
           transcribeAudioChunk(audioBlob, chunkNum);
         }
 
-        // Continue next cycle if still recording
         if (isRecordingRef.current) {
           startRecordingCycle();
         }
@@ -143,7 +144,6 @@ export default function CourtAiPage() {
 
       recorder.start();
 
-      // Stop recorder after CHUNK_INTERVAL_MS to trigger onstop and transcribe
       timerRef.current = setTimeout(() => {
         if (recorder.state === "recording") {
           recorder.stop();
@@ -174,7 +174,7 @@ export default function CourtAiPage() {
     }
 
     try {
-      setStatusMessage("Requesting microphone permission...");
+      setStatusMessage("Requesting microphone permission / परवानगी विचारत आहे...");
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -187,7 +187,7 @@ export default function CourtAiPage() {
       isRecordingRef.current = true;
       setIsRecording(true);
       setDictationState("recording");
-      setStatusMessage("Listening... Speak clearly.");
+      setStatusMessage("Listening... Speak clearly in English or Marathi.");
 
       startRecordingCycle();
     } catch (err: unknown) {
@@ -240,7 +240,7 @@ export default function CourtAiPage() {
       setStatusMessage("Finalizing transcription...");
     } else {
       setDictationState("idle");
-      setStatusMessage("Dictation stopped.");
+      setStatusMessage("Dictation stopped / डिक्टेशन थांबवले.");
     }
   }, []);
 
@@ -257,29 +257,33 @@ export default function CourtAiPage() {
 
   // Clear transcript
   const handleClearTranscript = () => {
-    if (confirm("Are you sure you want to clear the transcript?")) {
+    if (confirm("Are you sure you want to clear the transcript? / आपण मसुदा साफ करू इच्छिता?")) {
       setTranscript("");
     }
   };
 
-  // Load fallback sample transcript
-  const handleLoadSample = () => {
-    setTranscript(SAMPLE_FALLBACK_TRANSCRIPT);
-    setStatusMessage("Demo sample loaded.");
+  // Load fallback sample transcript (Bilingual Marathi+English or English)
+  const handleLoadSample = (type: "combined" | "english" = "combined") => {
+    if (type === "english") {
+      setTranscript(SAMPLE_ENGLISH_TRANSCRIPT);
+    } else {
+      setTranscript(SAMPLE_COMBINED_TRANSCRIPT);
+    }
+    setStatusMessage("Demo sample loaded / नमुना मसुदा लोड झाला.");
   };
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex-1 flex flex-col min-h-screen">
       {/* Top Court Header */}
       <CourtHeader />
 
-      {/* Main Content Area (Screen View) */}
-      <main className="max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6 no-print flex-1">
-        {/* Case Info Banner */}
+      {/* Main Content Area (Screen View with mobile-first padding) */}
+      <main className="max-w-6xl w-full mx-auto px-3.5 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6 no-print flex-1">
+        {/* Case Info Banner (2x2 grid on mobile) */}
         <CaseInfoBar caseDetails={DEMO_CASE_DETAILS} />
 
         {/* Controls Bar: Language & Processing Mode */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4 shadow-sm">
           <LanguageSelector
             value={language}
             onChange={setLanguage}
@@ -293,7 +297,7 @@ export default function CourtAiPage() {
         </div>
 
         {/* Microphone Dictation Action Hub */}
-        <div className="bg-white border border-slate-200 rounded-xl p-6 sm:p-8 shadow-sm flex flex-col items-center justify-center text-center">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-8 shadow-sm flex flex-col items-center justify-center text-center">
           <MicrophoneButton
             state={dictationState}
             isRecording={isRecording}
@@ -301,7 +305,7 @@ export default function CourtAiPage() {
             onStop={stopDictation}
           />
 
-          <div className="w-full max-w-xl mt-4">
+          <div className="w-full max-w-xl mt-3 sm:mt-4">
             <StatusIndicator
               state={dictationState}
               statusMessage={statusMessage}
@@ -329,7 +333,7 @@ export default function CourtAiPage() {
           }}
         />
 
-        {/* Demo Script Section */}
+        {/* Demo Script Section with English, Marathi & Combined tabs */}
         <DemoScript />
       </main>
 

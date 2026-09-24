@@ -1,10 +1,11 @@
 /**
  * Deterministic legal normalization layer for Court AI.
+ * Specialized for English, Marathi (मराठी), and mixed bilingual legal dictation.
  * Handles legal term replacements, section number normalization,
- * voice punctuation commands, sentence capitalization, and paragraphing.
+ * voice punctuation commands in English & Marathi, sentence capitalization, and paragraphing.
  */
 
-// Number words to digits mapping helper
+// Number words to digits mapping helper (English)
 const SMALL_NUMBERS: Record<string, number> = {
   zero: 0,
   one: 1,
@@ -39,6 +40,39 @@ const TENS: Record<string, number> = {
   ninety: 90,
 };
 
+// Common Marathi spoken number phrases in legal contexts
+const MARATHI_LEGAL_SECTIONS: Record<string, string> = {
+  "एकशे चव्वेचाळीस": "144",
+  "एकशे चव्वेचाळीस अ": "144A",
+  "एकशे त्रेचाळीस": "143",
+  "एकशे अडतीस": "138",
+  "तीनशे दोन": "302",
+  "तीनशे चार": "304",
+  "तीनशे चार ब": "304B",
+  "चारशे वीस": "420",
+  "चारशे ब्याऐंशी": "482",
+  "चारशे ब्यांशी": "482",
+  "चारशे अठ्ठ्याण्णव अ": "498A",
+  "तीनशे चौऱ्यात्तर": "376",
+  "चौतीस": "34",
+  "नऊ": "9",
+  "बारा": "12",
+  "तेरा": "13",
+  "एकशे सत्तावीस": "127",
+  "एकशे पंचवीस": "125",
+};
+
+/**
+ * Converts Devanagari numerals (०-९) to Latin digits (0-9)
+ */
+export function devanagariToLatinDigits(str: string): string {
+  const devanagariDigits = "०१२३४५६७८९";
+  return str.replace(/[०-९]/g, (char) => {
+    const index = devanagariDigits.indexOf(char);
+    return index !== -1 ? String(index) : char;
+  });
+}
+
 /**
  * Converts natural language spoken number phrases like "one forty four" or "three hundred two"
  * into digits ("144", "302").
@@ -54,21 +88,7 @@ export function wordsToNumber(wordsStr: string): string | null {
     return tokens.join("").toUpperCase();
   }
 
-  // Handle patterns:
-  // 1. "one forty four" -> 1 44 -> 144
-  // 2. "three hundred two" / "three hundred and two" -> 300 + 2 -> 302
-  // 3. "four twenty" -> 4 20 -> 420
-  // 4. "one thirty eight" -> 1 38 -> 138
-  // 5. "thirty four" -> 34
-
-  // Check for hundred pattern
-  let total = 0;
-  let current = 0;
-  let hasNumber = false;
-  let isDigitConcat = false;
-  const digitsBuffer: string[] = [];
-
-  // Check if it's a sequence of single digits or hundreds
+  // Handle English patterns
   const allSingleOrTens = tokens.every(
     (t) =>
       t in SMALL_NUMBERS ||
@@ -83,7 +103,6 @@ export function wordsToNumber(wordsStr: string): string | null {
   }
 
   // Special common pattern in legal speech: "one forty four" -> 144
-  // If first is 1-9 and second is 20-99 (with optional third 1-9)
   if (
     tokens.length >= 2 &&
     tokens[0] in SMALL_NUMBERS &&
@@ -108,6 +127,11 @@ export function wordsToNumber(wordsStr: string): string | null {
   }
 
   // Standard hundred parser: "three hundred and two", "four hundred twenty"
+  let total = 0;
+  let current = 0;
+  let hasNumber = false;
+  const digitsBuffer: string[] = [];
+
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
     if (t === "and") continue;
@@ -124,7 +148,6 @@ export function wordsToNumber(wordsStr: string): string | null {
       current += SMALL_NUMBERS[t];
       hasNumber = true;
     } else if (/^[a-z]$/i.test(t)) {
-      // Suffix like 120 B, 438 A
       digitsBuffer.push(t.toUpperCase());
     }
   }
@@ -138,17 +161,31 @@ export function wordsToNumber(wordsStr: string): string | null {
 }
 
 /**
- * Normalizes section number expressions:
+ * Normalizes section number expressions in both English and Marathi:
  * e.g., "section one forty four" -> "Section 144"
- * e.g., "section 144" -> "Section 144"
+ * e.g., "कलम एकशे चव्वेचाळीस" -> "Section 144 (कलम 144)"
+ * e.g., "कलम १४४" -> "Section 144 (कलम 144)"
  */
 export function normalizeSectionNumbers(text: string): string {
-  // Regex to match "section <words or numbers>"
-  const sectionRegex = /\bsection\s+([a-zA-Z0-9\s\-]+?)(?=[,\.\?!;\n]|\s+of\b|\s+cpc\b|\s+crpc\b|\s+ipc\b|\s+read\b|\s+and\b|$)/gi;
+  let result = text;
 
-  return text.replace(sectionRegex, (match, words) => {
+  // 1. Convert any Devanagari numerals after 'कलम' or 'section'
+  result = result.replace(/(कलम\s+)([०-९]+)/gi, (_, prefix, digits) => {
+    const latin = devanagariToLatinDigits(digits);
+    return `Section ${latin} (कलम ${latin})`;
+  });
+
+  // 2. Marathi spoken section names
+  for (const [marathiPhrase, sectionNum] of Object.entries(MARATHI_LEGAL_SECTIONS)) {
+    const reg = new RegExp(`कलम\\s+${marathiPhrase}`, "gi");
+    result = result.replace(reg, `Section ${sectionNum} (कलम ${sectionNum})`);
+  }
+
+  // 3. English "section <words or numbers>"
+  const sectionRegex = /\bsection\s+([a-zA-Z0-9\s\-]+?)(?=[,\.\?!;\n]|\s+of\b|\s+cpc\b|\s+crpc\b|\s+ipc\b|\s+read\b|\s+and\b|\s+अन्वये\b|$)/gi;
+
+  result = result.replace(sectionRegex, (match, words) => {
     const trimmed = words.trim();
-    // If it's already digits
     if (/^\d+[a-zA-Z]?$/.test(trimmed)) {
       return `Section ${trimmed.toUpperCase()}`;
     }
@@ -159,41 +196,54 @@ export function normalizeSectionNumbers(text: string): string {
     }
     return `Section ${trimmed}`;
   });
-}
-
-/**
- * Replaces voice punctuation instructions with symbols:
- * "full stop" / "period" -> "."
- * "comma" -> ","
- * "colon" -> ":"
- * "semicolon" -> ";"
- * "question mark" -> "?"
- * "next paragraph" / "new paragraph" -> "\n\n"
- * "new line" -> "\n"
- */
-export function normalizeVoicePunctuation(text: string): string {
-  let result = text;
-
-  // New paragraphs and lines first
-  result = result.replace(/\b(?:next\s+paragraph|new\s+paragraph)\b/gi, "\n\n");
-  result = result.replace(/\b(?:new\s+line|next\s+line)\b/gi, "\n");
-
-  // Punctuation marks
-  result = result.replace(/\b(?:full\s+stop|period)\b/gi, ".");
-  result = result.replace(/\bcomma\b/gi, ",");
-  result = result.replace(/\bcolon\b/gi, ":");
-  result = result.replace(/\bsemi[\s\-]?colon\b/gi, ";");
-  result = result.replace(/\bquestion\s+mark\b/gi, "?");
 
   return result;
 }
 
 /**
- * Deterministic legal terminology mappings.
- * Note: conservative replacement to avoid altering general English outside court context.
+ * Replaces voice punctuation instructions in English and Marathi with symbols:
+ * English: "full stop", "comma", "colon", "semicolon", "next paragraph", "new line"
+ * Marathi: "पूर्णविराम", "पूर्ण विराम", "स्वल्पविराम", "नवीन परिच्छेद", "पुढील परिच्छेद", "नवीन ओळ", "प्रश्नचिन्ह"
+ */
+export function normalizeVoicePunctuation(text: string): string {
+  let result = text;
+
+  // New paragraphs and lines (English & Marathi)
+  result = result.replace(
+    /\b(?:next\s+paragraph|new\s+paragraph)\b|(?:नवीन\s+परिच्छेद|पुढील\s+परिच्छेद|नवीन\s+पॅरा)/gi,
+    "\n\n"
+  );
+  result = result.replace(
+    /\b(?:new\s+line|next\s+line)\b|(?:नवीन\s+ओळ|पुढील\s+ओळ)/gi,
+    "\n"
+  );
+
+  // Full stop / पूर्णविराम
+  result = result.replace(
+    /\b(?:full\s+stop|period)\b|(?:पूर्ण\s*विराम|पूर्णविराम)/gi,
+    "."
+  );
+
+  // Comma / स्वल्पविराम
+  result = result.replace(/\bcomma\b|(?:स्वल्प\s*विराम|स्वल्पविराम)/gi, ",");
+
+  // Colon / विसर्ग
+  result = result.replace(/\bcolon\b|(?:विसर्ग)/gi, ":");
+
+  // Semicolon
+  result = result.replace(/\bsemi[\s\-]?colon\b|(?:अर्धविराम)/gi, ";");
+
+  // Question mark / प्रश्नचिन्ह
+  result = result.replace(/\bquestion\s+mark\b|(?:प्रश्न\s*चिन्ह|प्रश्नचिन्ह)/gi, "?");
+
+  return result;
+}
+
+/**
+ * Deterministic legal terminology mappings for English and Marathi.
  */
 const LEGAL_TERMS: Array<[RegExp, string]> = [
-  // Courts & Honors
+  // Courts & Honors (English)
   [/\bhonou?rable\s+court\b/gi, "Hon'ble Court"],
   [/\bhonou?rable\s+judge\b/gi, "Hon'ble Judge"],
   [/\bhonou?rable\s+justice\b/gi, "Hon'ble Justice"],
@@ -204,7 +254,13 @@ const LEGAL_TERMS: Array<[RegExp, string]> = [
   [/\bdistrict\s+court\b/gi, "District Court"],
   [/\bsessions\s+court\b/gi, "Sessions Court"],
 
-  // Statutes & Codes
+  // Courts & Honors (Marathi)
+  [/(?:मा\.\s*न्यायालय|माननीय\s+न्यायालय|मा\.\s*कोर्ट|माननीय\s+कोर्ट)/gi, "Hon'ble Court (मा. न्यायालय)"],
+  [/(?:मा\.\s*उच्च\s+न्यायालय|माननीय\s+उच्च\s+न्यायालय)/gi, "Hon'ble High Court (मा. उच्च न्यायालय)"],
+  [/(?:मा\.\s*सर्वोच्च\s+न्यायालय|माननीय\s+सर्वोच्च\s+न्यायालय)/gi, "Hon'ble Supreme Court (मा. सर्वोच्च न्यायालय)"],
+  [/(?:मा\.\s*जिल्हा\s+न्यायालय|माननीय\s+जिल्हा\s+न्यायालय)/gi, "District Court (मा. जिल्हा न्यायालय)"],
+
+  // Statutes & Codes (English)
   [/\b(?:the\s+)?code\s+of\s+civil\s+procedure\b/gi, "CPC"],
   [/\bcivil\s+procedure\s+code\b/gi, "CPC"],
   [/\b(?:the\s+)?code\s+of\s+criminal\s+procedure\b/gi, "CrPC"],
@@ -214,7 +270,12 @@ const LEGAL_TERMS: Array<[RegExp, string]> = [
   [/\bbharatiya\s+nagarik\s+suraksha\s+sanhita\b/gi, "BNSS"],
   [/\bbharatiya\s+sakshya\s+adhiniyam\b/gi, "BSA"],
 
-  // Parties & Roles
+  // Statutes & Codes (Marathi)
+  [/दिवाणी\s+प्रक्रिया\s+संहिता/gi, "CPC (दिवाणी प्रक्रिया संहिता)"],
+  [/फौजदारी\s+प्रक्रिया\s+संहिता/gi, "CrPC (फौजदारी प्रक्रिया संहिता)"],
+  [/भारतीय\s+दंड\s+संहिता/gi, "IPC (भारतीय दंड संहिता)"],
+
+  // Parties & Roles (English)
   [/\bapplicant\b/gi, "Applicant"],
   [/\bapplicants\b/gi, "Applicants"],
   [/\brespondent\b/gi, "Respondent"],
@@ -226,17 +287,27 @@ const LEGAL_TERMS: Array<[RegExp, string]> = [
   [/\bplaintiff\b/gi, "Plaintiff"],
   [/\bdefendant\b/gi, "Defendant"],
 
-  // Legal phrasing
+  // Parties & Roles (Marathi)
+  [/अर्जदार(?=[\s\.,]|$)/gi, "Applicant (अर्जदार)"],
+  [/(?:सामनावाला|गैरअर्जदार|प्रतिवादी)(?=[\s\.,]|$)/gi, "Respondent (सामनावाला/प्रतिवादी)"],
+  [/याचिकाकर्ता(?=[\s\.,]|$)/gi, "Petitioner (याचिकाकर्ता)"],
+  [/अपीलकर्ता(?=[\s\.,]|$)/gi, "Appellant (अपीलकर्ता)"],
+
+  // Legal phrasing (English & Marathi)
   [/\blearned\s+counsel\b/gi, "Learned Counsel"],
   [/\blearned\s+advocate\b/gi, "Learned Advocate"],
-  [/\blearned\s+senior\s+counsel\b/gi, "Learned Senior Counsel"],
-  [/\blearned\s+public\s+prosecutor\b/gi, "Learned Public Prosecutor"],
+  [/(?:विद्वान\s+वकील|विद्वान\s+अधिवक्ता)/gi, "Learned Advocate"],
   [/\bfirst\s+information\s+report\b/gi, "FIR"],
+  [/(?:प्रथम\s+खबरी\s+अहवाल|एफआयआर|एफ\.आय\.आर\.)/gi, "FIR"],
   [/\binterim\s+application\b/gi, "IA"],
+  [/(?:अंतरिम\s+अर्ज|आय\.ए\.)/gi, "IA (Interim Application)"],
   [/\bspecial\s+leave\s+petition\b/gi, "SLP"],
   [/\bwrit\s+petition\b/gi, "Writ Petition"],
+  [/(?:रिट\s+याचिका)/gi, "Writ Petition"],
   [/\bstatus\s+quo\b/gi, "status quo"],
+  [/(?:यथास्थिती)/gi, "Status Quo (यथास्थिती)"],
   [/\bprima\s+facie\b/gi, "prima facie"],
+  [/(?:प्रथमदर्शनी)/gi, "Prima Facie (प्रथमदर्शनी)"],
 ];
 
 export function normalizeLegalTerms(text: string): string {
@@ -250,8 +321,9 @@ export function normalizeLegalTerms(text: string): string {
 /**
  * Cleans up typography spacing and sentence casing:
  * - Removes whitespace before punctuation (. , ; : ? !)
- * - Ensures space after punctuation unless followed by newline/end
- * - Capitalizes sentence beginnings after periods, question marks, and newlines
+ * - Collapses duplicate periods or commas
+ * - Ensures space after punctuation
+ * - Capitalizes sentence beginnings after periods and newlines
  */
 export function formatTypography(text: string): string {
   let result = text;
@@ -275,8 +347,7 @@ export function formatTypography(text: string): string {
   // Normalize excessive blank lines (max 2 consecutive newlines)
   result = result.replace(/\n{3,}/g, "\n\n");
 
-  // Sentence capitalization after . ! ? or start of line
-  // Works with English text while preserving Unicode/Devanagari scripts
+  // Sentence capitalization after . ! ? or start of line (English text while preserving Devanagari)
   result = result.replace(/(^|[\.\?!]\s+|\n+)([a-z])/g, (_, prefix, letter) => {
     return prefix + letter.toUpperCase();
   });
@@ -287,7 +358,7 @@ export function formatTypography(text: string): string {
 /**
  * Main legal normalizer entry point.
  * @param text The input transcription text
- * @param mode "court_draft" | "verbatim"
+ * @param mode "court_draft" | "verbatim" | "translate"
  */
 export function normalizeLegalTranscript(
   text: string,
@@ -296,17 +367,17 @@ export function normalizeLegalTranscript(
   if (!text) return "";
 
   if (mode === "verbatim" || mode === "translate") {
-    // In verbatim/translate mode, keep minimal processing: clean stray multiple spaces and basic sentence casing
+    // In verbatim/translate mode, keep minimal processing
     return text.replace(/[ \t]+/g, " ").trim();
   }
 
-  // 1. Voice punctuation commands ("full stop" -> ".", "next paragraph" -> "\n\n")
+  // 1. Voice punctuation commands in English & Marathi ("full stop" / "पूर्णविराम" -> ".")
   let processed = normalizeVoicePunctuation(text);
 
-  // 2. Section number normalization ("section one forty four" -> "Section 144")
+  // 2. Section number normalization ("section one forty four" / "कलम १४४" -> "Section 144")
   processed = normalizeSectionNumbers(processed);
 
-  // 3. Legal terms ("honourable court" -> "Hon'ble Court", "cpc" -> "CPC")
+  // 3. Legal terms ("honourable court" / "मा. न्यायालय" -> "Hon'ble Court", "cpc" -> "CPC")
   processed = normalizeLegalTerms(processed);
 
   // 4. Clean spacing, punctuation attachments, and sentence capitalization

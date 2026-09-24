@@ -7,7 +7,7 @@ export const CourtFooter: React.FC = () => {
         <div className="flex items-center space-x-2">
           <span className="font-semibold text-slate-700">Court AI Demo</span>
           <span>•</span>
-          <span>Speech recognition powered by OpenAI</span>
+          <span>Speech recognition powered by Oliots</span>
         </div>
         <p className="text-center sm:text-right text-slate-400">
           Prototype legal dictation demonstration. Dictated text requires human review before filing.

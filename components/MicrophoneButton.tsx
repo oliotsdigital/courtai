@@ -102,8 +102,8 @@ export const MicrophoneButton: React.FC<MicrophoneButtonProps> = ({
             Click Start Dictate to try again
           </p>
         ) : (
-          <p className="text-sm text-slate-500 font-medium">
-            Click to begin live legal speech-to-text dictation
+          <p className="text-xs sm:text-sm text-slate-600 font-medium">
+            बोलणे सुरू करा / Tap to begin legal dictation (English &amp; मराठी)
           </p>
         )}
       </div>

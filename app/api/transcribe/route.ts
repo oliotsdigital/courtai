@@ -37,8 +37,7 @@ export async function POST(request: NextRequest) {
       process.env.OPENAI_TRANSCRIPTION_MODEL?.trim() || "whisper-1";
 
     // Set up transcription options
-    // Supported languages: English ('en'), Marathi ('mr'), Hindi ('hi')
-    // If 'auto' or not specified, OpenAI Whisper automatically detects language
+    // Special focus: English, Marathi ('mr'), and mixed bilingual court speech ('mixed' / 'auto')
     const transcriptionOptions: OpenAI.Audio.Transcriptions.TranscriptionCreateParams = {
       file: audioFile,
       model: model,
@@ -46,14 +45,19 @@ export async function POST(request: NextRequest) {
       temperature: 0.0,
     };
 
-    if (languageParam && languageParam !== "auto") {
-      // Map to ISO-639-1 code
-      transcriptionOptions.language = languageParam;
+    if (languageParam === "en") {
+      transcriptionOptions.language = "en";
+      transcriptionOptions.prompt =
+        "Court proceedings dictation in English. Hon'ble Court, Section, CPC, CrPC, IPC, Applicant, Respondent, Petitioner.";
+    } else if (languageParam === "mr") {
+      transcriptionOptions.language = "mr";
+      transcriptionOptions.prompt =
+        "न्यायालयीन कामकाज डिक्टेशन मराठीत. मा. न्यायालय, अर्जदार, प्रतिवादी, आदेश, कलम, दिवाणी प्रक्रिया संहिता, फौजदारी प्रक्रिया संहिता.";
+    } else {
+      // "mixed" or "auto" - allow Whisper to dynamically transcribe both English and Marathi
+      transcriptionOptions.prompt =
+        "Court legal proceedings dictation in English and Marathi (मराठी). The Applicant ने application दाखल केली under Section 144 of the CPC. मा. न्यायालय, Hon'ble Court, अर्जदार, प्रतिवादी, आदेश, FIR, IPC, CrPC.";
     }
-
-    // Optional prompt to encourage correct legal terminology and capitalization in Whisper
-    transcriptionOptions.prompt =
-      "Court proceedings dictation. Hon'ble Court, Section, CPC, CrPC, IPC, Applicant, Respondent, Petitioner.";
 
     const transcription = await openai.audio.transcriptions.create(
       transcriptionOptions

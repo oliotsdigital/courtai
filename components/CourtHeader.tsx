@@ -20,17 +20,14 @@ export const CourtHeader: React.FC = () => {
               </span>
             </div>
             <p className="text-xs sm:text-sm text-slate-500 font-medium">
-              AI-Powered Court Speech-to-Document
+              AI-Powered Legal Speech-to-Document &bull; English &amp; मराठी
             </p>
           </div>
         </div>
 
         <div className="text-right hidden sm:block">
-          <div className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-            Legal Dictation System
-          </div>
-          <div className="text-xs text-slate-600 font-medium">
-            Next.js + OpenAI Whisper
+          <div className="text-xs font-semibold text-court-700 bg-court-50 border border-court-200 px-2.5 py-1 rounded-md">
+            English &amp; Marathi ASR
           </div>
         </div>
       </div>
