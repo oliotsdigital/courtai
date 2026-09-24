@@ -8,6 +8,23 @@ interface Env {
   OPENAI_TRANSCRIPTION_MODEL?: string;
 }
 
+export const onRequestGet = async (context: {
+  env: Env;
+}): Promise<Response> => {
+  const apiKey = context.env.OPENAI_API_KEY?.trim();
+  return new Response(
+    JSON.stringify({
+      status: "ok",
+      service: "Cloudflare Pages Transcription Function",
+      apiKeyConfigured: Boolean(apiKey),
+    }),
+    {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }
+  );
+};
+
 export const onRequestPost = async (context: {
   request: Request;
   env: Env;
@@ -32,7 +49,7 @@ export const onRequestPost = async (context: {
     const audioFile = formData.get("audio");
     const languageParam = formData.get("language") as string | null;
 
-    if (!audioFile) {
+    if (!audioFile || !(audioFile instanceof Blob)) {
       return new Response(
         JSON.stringify({ error: "No audio file provided in request." }),
         {
@@ -45,8 +62,14 @@ export const onRequestPost = async (context: {
     const model = context.env.OPENAI_TRANSCRIPTION_MODEL?.trim() || "whisper-1";
 
     const openAiFormData = new FormData();
-    openAiFormData.append("file", audioFile);
+    const filename =
+      audioFile instanceof File && audioFile.name
+        ? audioFile.name
+        : `audio_${Date.now()}.${audioFile.type?.includes("mp4") ? "mp4" : "webm"}`;
+
+    openAiFormData.append("file", audioFile, filename);
     openAiFormData.append("model", model);
+
     openAiFormData.append("response_format", "json");
     openAiFormData.append("temperature", "0");
 

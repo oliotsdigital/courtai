@@ -1,102 +1,156 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Robust helper to retrieve environment variables from:
+ * 1. process.env (Node.js runtime, local development, and Cloudflare if nodejs_compat_populate_process_env is enabled)
+ * 2. Cloudflare Worker context env (Cloudflare Dashboard Secrets / Variables)
+ */
+function getEnv(key: string): string | undefined {
+  if (typeof process !== "undefined" && process.env?.[key]?.trim()) {
+    return process.env[key]!.trim();
+  }
+
+  try {
+    const cf = getCloudflareContext();
+    if (cf?.env && typeof cf.env === "object") {
+      const val = (cf.env as Record<string, unknown>)[key];
+      if (typeof val === "string" && val.trim()) {
+        return val.trim();
+      }
+    }
+  } catch {
+    // Cloudflare context unavailable outside edge/worker requests
+  }
+
+  return undefined;
+}
+
+/**
+ * Health check endpoint for /api/transcribe
+ * Allows checking if the endpoint is deployed and if OPENAI_API_KEY is detected.
+ */
+export async function GET() {
+  const apiKey = getEnv("OPENAI_API_KEY");
+  return NextResponse.json({
+    status: "ok",
+    service: "CourtAI Speech-to-Text API",
+    apiKeyConfigured: Boolean(apiKey),
+    model: getEnv("OPENAI_TRANSCRIPTION_MODEL") || "whisper-1",
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    const apiKey = getEnv("OPENAI_API_KEY");
 
     if (!apiKey) {
       return NextResponse.json(
         {
           error:
-            "OpenAI API key is not configured. Please set OPENAI_API_KEY in your .env.local file or export OPENAI_API_KEY in your environment, then restart the server.",
+            "OpenAI API key is missing. Please configure OPENAI_API_KEY in the Cloudflare Dashboard (Workers & Pages > courtai > Settings > Variables and Secrets) or in your .env.local file locally.",
         },
         { status: 500 }
       );
     }
 
     const formData = await request.formData();
-    const audioFile = formData.get("audio") as File | null;
+    const audioFile = formData.get("audio");
     const languageParam = formData.get("language") as string | null;
 
-    if (!audioFile) {
+    if (!audioFile || !(audioFile instanceof Blob)) {
       return NextResponse.json(
-        { error: "No audio file provided in request." },
+        { error: "No valid audio file provided in request." },
         { status: 400 }
       );
     }
 
-    // Initialize OpenAI client strictly on the server side
-    const openai = new OpenAI({
-      apiKey: apiKey,
-    });
+    const model = getEnv("OPENAI_TRANSCRIPTION_MODEL") || "whisper-1";
 
-    const model =
-      process.env.OPENAI_TRANSCRIPTION_MODEL?.trim() || "whisper-1";
+    // Prepare standard multipart/form-data for OpenAI Audio Transcription API
+    const openAiFormData = new FormData();
 
-    // Set up transcription options
-    // Special focus: English, Marathi ('mr'), and mixed bilingual court speech ('mixed' / 'auto')
-    const transcriptionOptions: OpenAI.Audio.Transcriptions.TranscriptionCreateParams = {
-      file: audioFile,
-      model: model,
-      response_format: "json",
-      temperature: 0.0,
-    };
+    // Ensure a proper filename with extension is provided so Whisper recognizes the audio format
+    const filename =
+      audioFile instanceof File && audioFile.name
+        ? audioFile.name
+        : `audio_${Date.now()}.${audioFile.type?.includes("mp4") ? "mp4" : "webm"}`;
+
+    openAiFormData.append("file", audioFile, filename);
+    openAiFormData.append("model", model);
+    openAiFormData.append("response_format", "json");
+    openAiFormData.append("temperature", "0");
 
     if (languageParam === "en") {
-      transcriptionOptions.language = "en";
-      transcriptionOptions.prompt =
-        "Court proceedings dictation in English. Hon'ble Court, Section, CPC, CrPC, IPC, Applicant, Respondent, Petitioner.";
+      openAiFormData.append("language", "en");
+      openAiFormData.append(
+        "prompt",
+        "Court proceedings dictation in English. Hon'ble Court, Section, CPC, CrPC, IPC, Applicant, Respondent, Petitioner."
+      );
     } else if (languageParam === "mr") {
-      transcriptionOptions.language = "mr";
-      transcriptionOptions.prompt =
-        "न्यायालयीन कामकाज डिक्टेशन मराठीत. मा. न्यायालय, अर्जदार, प्रतिवादी, आदेश, कलम, दिवाणी प्रक्रिया संहिता, फौजदारी प्रक्रिया संहिता.";
+      openAiFormData.append("language", "mr");
+      openAiFormData.append(
+        "prompt",
+        "न्यायालयीन कामकाज डिक्टेशन मराठीत. मा. न्यायालय, अर्जदार, प्रतिवादी, आदेश, कलम, दिवाणी प्रक्रिया संहिता, फौजदारी प्रक्रिया संहिता."
+      );
     } else {
       // "mixed" or "auto" - allow Whisper to dynamically transcribe both English and Marathi
-      transcriptionOptions.prompt =
-        "Court legal proceedings dictation in English and Marathi (मराठी). The Applicant ने application दाखल केली under Section 144 of the CPC. मा. न्यायालय, Hon'ble Court, अर्जदार, प्रतिवादी, आदेश, FIR, IPC, CrPC.";
+      openAiFormData.append(
+        "prompt",
+        "Court legal proceedings dictation in English and Marathi (मराठी). The Applicant ने application दाखल केली under Section 144 of the CPC. मा. न्यायालय, Hon'ble Court, अर्जदार, प्रतिवादी, आदेश, FIR, IPC, CrPC."
+      );
     }
 
-    const transcription = await openai.audio.transcriptions.create(
-      transcriptionOptions
-    );
+    // Direct native fetch to OpenAI Whisper API - 100% compatible with Cloudflare Workers runtime
+    const apiRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: openAiFormData,
+    });
+
+    const data = (await apiRes.json()) as {
+      text?: string;
+      error?: { message?: string; type?: string; code?: string };
+    };
+
+    if (!apiRes.ok) {
+      const openAiErrorMessage =
+        data?.error?.message ||
+        `OpenAI returned error status ${apiRes.status} (${apiRes.statusText})`;
+      console.error("[OpenAI Whisper Error]:", openAiErrorMessage);
+
+      let friendlyError = openAiErrorMessage;
+      if (apiRes.status === 401) {
+        friendlyError =
+          "Invalid OpenAI API key. Please verify your OPENAI_API_KEY in Cloudflare Settings > Variables and Secrets.";
+      } else if (apiRes.status === 429) {
+        friendlyError =
+          "OpenAI quota exceeded. Please check your OpenAI account billing and credits.";
+      }
+
+      return NextResponse.json(
+        { error: friendlyError },
+        { status: apiRes.status }
+      );
+    }
 
     return NextResponse.json({
-      text: transcription.text || "",
+      text: data.text || "",
     });
   } catch (error: unknown) {
-    console.error("[Transcription Error]:", error);
+    console.error("[Transcription Route Error]:", error);
 
-    // Provide safe, user-friendly error messages without raw stack traces
-    let errorMessage = "Speech transcription failed. Please try again.";
-
-    if (error instanceof Error) {
-      if (
-        error.message.includes("Incorrect API key") ||
-        error.message.includes("401")
-      ) {
-        errorMessage =
-          "Invalid OpenAI API key. Please check your OPENAI_API_KEY in .env.local.";
-      } else if (
-        error.message.includes("quota") ||
-        error.message.includes("insufficient_quota") ||
-        error.message.includes("429")
-      ) {
-        errorMessage =
-          "OpenAI quota exceeded. Please check your OpenAI account billing/usage limit.";
-      } else if (error.message.includes("audio")) {
-        errorMessage =
-          "The uploaded audio format could not be processed. Please check microphone settings.";
-      } else {
-        errorMessage = `Transcription request failed: ${error.message}`;
-      }
-    }
+    const errorMessage =
+      error instanceof Error ? error.message : "Internal transcription error.";
 
     return NextResponse.json(
-      { error: errorMessage },
+      { error: `Transcription failed: ${errorMessage}` },
       { status: 500 }
     );
   }
 }
+
