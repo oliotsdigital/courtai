@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle pulse animation for recording state */
+@keyframes listening-ring {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45);
+  }
+  70% {
+    transform: scale(1.02);
+    box-shadow: 0 0 0 14px rgba(220, 38, 38, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
+  }
+}
+
+.animate-listening-ring {
+  animation: listening-ring 1.8s infinite cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+/* Hide print layout on screen */
+.print-only {
+  display: none;
+}
+
+/* Print Styles for Court Orders and Judgments */
+@media print {
+  @page {
+    size: A4;
+    margin: 20mm;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: "Times New Roman", Times, Georgia, serif !important;
+    font-size: 12pt !important;
+    line-height: 1.5 !important;
+  }
+
+  /* Hide all UI elements when printing */
+  .no-print,
+  nav,
+  header,
+  footer,
+  button,
+  .status-badge,
+  .demo-section,
+  .controls-panel {
+    display: none !important;
+  }
+
+  /* Show only formatted legal document */
+  .print-only {
+    display: block !important;
+    width: 100% !important;
+  }
+
+  .court-doc-header {
+    text-align: center;
+    margin-bottom: 24pt;
+  }
+
+  .court-doc-title {
+    font-size: 15pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 6pt;
+  }
+
+  .court-doc-case {
+    font-size: 12pt;
+    font-weight: bold;
+    margin-bottom: 16pt;
+  }
+
+  .court-doc-parties {
+    margin-bottom: 20pt;
+  }
+
+  .court-doc-section-heading {
+    text-align: center;
+    font-size: 13pt;
+    font-weight: bold;
+    text-decoration: underline;
+    margin: 20pt 0 14pt 0;
+  }
+
+  .court-doc-body {
+    text-align: justify;
+    text-justify: inter-word;
+    font-size: 12pt;
+    white-space: pre-wrap;
+    margin-bottom: 30pt;
+  }
+
+  .court-doc-footer {
+    margin-top: 40pt;
+    display: flex;
+    justify-content: space-between;
+  }
+}
