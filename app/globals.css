@@ -39,6 +39,18 @@ body {
   display: none;
 }
 
+/* Hide Next.js development indicator / badge in bottom-left corner */
+nextjs-portal,
+#__next-build-watcher,
+[data-nextjs-dev-tools],
+[data-nextjs-toast],
+div[data-nextjs-dev-tools-button] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 /* Print Styles for Court Orders and Judgments */
 @media print {
   @page {

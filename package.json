@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && cp .next/server/app/index.html .next/index.html && cp .next/server/app/_not-found.html .next/404.html",
     "start": "next start",
     "lint": "next lint",
     "deploy": "echo 'Build ready for deployment'"
