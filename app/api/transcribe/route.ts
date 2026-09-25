@@ -72,36 +72,45 @@ export async function POST(request: NextRequest) {
     // Prepare standard multipart/form-data for OpenAI Audio Transcription API
     const openAiFormData = new FormData();
 
+    // Map MIME type to correct file extension compatible with OpenAI Whisper
+    const mimeType = audioFile.type || "";
+    let extension = "webm";
+    if (mimeType.includes("mp4") || mimeType.includes("m4a")) {
+      extension = "mp4";
+    } else if (mimeType.includes("wav")) {
+      extension = "wav";
+    } else if (mimeType.includes("ogg")) {
+      extension = "ogg";
+    } else if (mimeType.includes("aac")) {
+      extension = "aac";
+    } else if (mimeType.includes("webm")) {
+      extension = "webm";
+    }
+
     // Ensure a proper filename with extension is provided so Whisper recognizes the audio format
     const filename =
-      audioFile instanceof File && audioFile.name
+      audioFile instanceof File && audioFile.name && audioFile.name.includes(".")
         ? audioFile.name
-        : `audio_${Date.now()}.${audioFile.type?.includes("mp4") ? "mp4" : "webm"}`;
+        : `court_dictation_${Date.now()}.${extension}`;
 
     openAiFormData.append("file", audioFile, filename);
     openAiFormData.append("model", model);
     openAiFormData.append("response_format", "json");
     openAiFormData.append("temperature", "0");
 
+    // Explicit language selection prevents Whisper from hallucinating or misidentifying
+    // Keep prompts minimal and non-repetitive so Whisper doesn't skip sentences or hallucinate prompt words on silence
     if (languageParam === "en") {
       openAiFormData.append("language", "en");
-      openAiFormData.append(
-        "prompt",
-        "Court proceedings dictation in English. Hon'ble Court, Section, CPC, CrPC, IPC, Applicant, Respondent, Petitioner."
-      );
+      openAiFormData.append("prompt", "Court legal proceedings and dictation.");
     } else if (languageParam === "mr") {
       openAiFormData.append("language", "mr");
-      openAiFormData.append(
-        "prompt",
-        "न्यायालयीन कामकाज डिक्टेशन मराठीत. मा. न्यायालय, अर्जदार, प्रतिवादी, आदेश, कलम, दिवाणी प्रक्रिया संहिता, फौजदारी प्रक्रिया संहिता."
-      );
-    } else {
-      // "mixed" or "auto" - allow Whisper to dynamically transcribe both English and Marathi
-      openAiFormData.append(
-        "prompt",
-        "Court legal proceedings dictation in English and Marathi (मराठी). The Applicant ने application दाखल केली under Section 144 of the CPC. मा. न्यायालय, Hon'ble Court, अर्जदार, प्रतिवादी, आदेश, FIR, IPC, CrPC."
-      );
+      openAiFormData.append("prompt", "न्यायालयीन कामकाज व आदेश डिक्टेशन.");
+    } else if (languageParam === "hi") {
+      openAiFormData.append("language", "hi");
+      openAiFormData.append("prompt", "न्यायालयीन कार्यवाही एवं आदेश डिक्टेशन.");
     }
+    // If language is "auto" or unspecified, do not append language parameter, allowing Whisper to auto-detect
 
     // Direct native fetch to OpenAI Whisper API - 100% compatible with Cloudflare Workers runtime
     const apiRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
@@ -140,6 +149,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       text: data.text || "",
+      rawText: data.text || "",
+      model,
+      language: languageParam || "auto",
     });
   } catch (error: unknown) {
     console.error("[Transcription Route Error]:", error);

@@ -40,7 +40,7 @@ const TENS: Record<string, number> = {
   ninety: 90,
 };
 
-// Common Marathi spoken number phrases in legal contexts
+// Common Marathi spoken number phrases in legal contexts (including Criminal & Sessions trials)
 const MARATHI_LEGAL_SECTIONS: Record<string, string> = {
   "एकशे चव्वेचाळीस": "144",
   "एकशे चव्वेचाळीस अ": "144A",
@@ -49,17 +49,62 @@ const MARATHI_LEGAL_SECTIONS: Record<string, string> = {
   "तीनशे दोन": "302",
   "तीनशे चार": "304",
   "तीनशे चार ब": "304B",
+  "तीनशे सत्त्याण्णव": "397",
+  "तीनशे सत्याण्णव": "397",
+  "तीनशे चौऱ्याण्णव": "394",
+  "तीनशे चौर्याण्णव": "394",
   "चारशे वीस": "420",
   "चारशे ब्याऐंशी": "482",
   "चारशे ब्यांशी": "482",
   "चारशे अठ्ठ्याण्णव अ": "498A",
   "तीनशे चौऱ्यात्तर": "376",
   "चौतीस": "34",
+  "पंचवीस": "25",
+  "सत्तावीस": "27",
+  "साठ": "60",
+  "एकशे शेचाळीस": "146",
+  "एकशे सेहेचाळीस": "146",
+  "एकशे एकसष्ठ": "161",
+  "एकशे एकसष्ट": "161",
+  "एकशे त्र्याहत्तर": "173",
+  "शंभर": "100",
+  "चव्वेचाळीस": "44",
   "नऊ": "9",
   "बारा": "12",
   "तेरा": "13",
   "एकशे सत्तावीस": "127",
   "एकशे पंचवीस": "125",
+};
+
+// Common Hindi spoken number phrases in legal contexts
+const HINDI_LEGAL_SECTIONS: Record<string, string> = {
+  "एक सौ चौवालीस": "144",
+  "एक सौ चौवालीस ए": "144A",
+  "एक सौ तैंतालीस": "143",
+  "एक सौ अड़तीस": "138",
+  "तीन सौ दो": "302",
+  "तीन सौ चार": "304",
+  "तीन सौ चार बी": "304B",
+  "तीन सौ सत्तानवे": "397",
+  "तीन सौ चौरानवे": "394",
+  "चार सौ बीस": "420",
+  "चार सौ बयासी": "482",
+  "चार सौ अठानवे ए": "498A",
+  "तीन सौ छिहत्तर": "376",
+  "चौंतीस": "34",
+  "पच्चीस": "25",
+  "सत्ताईस": "27",
+  "साठ": "60",
+  "एक सौ छियालीस": "146",
+  "एक सौ इकसठ": "161",
+  "एक सौ तिहत्तर": "173",
+  "सौ": "100",
+  "चवालीस": "44",
+  "नौ": "9",
+  "बारह": "12",
+  "तेरह": "13",
+  "एक सौ सत्ताईस": "127",
+  "एक सौ पच्चीस": "125",
 };
 
 /**
@@ -161,18 +206,23 @@ export function wordsToNumber(wordsStr: string): string | null {
 }
 
 /**
- * Normalizes section number expressions in both English and Marathi:
+ * Normalizes section number expressions in English, Marathi, and Hindi:
  * e.g., "section one forty four" -> "Section 144"
  * e.g., "कलम एकशे चव्वेचाळीस" -> "Section 144 (कलम 144)"
- * e.g., "कलम १४४" -> "Section 144 (कलम 144)"
+ * e.g., "धारा एक सौ चौवालीस" -> "Section 144 (धारा 144)"
  */
 export function normalizeSectionNumbers(text: string): string {
   let result = text;
 
-  // 1. Convert any Devanagari numerals after 'कलम' or 'section'
+  // 1. Convert any Devanagari numerals after 'कलम', 'धारा', or 'section'
   result = result.replace(/(कलम\s+)([०-९]+)/gi, (_, prefix, digits) => {
     const latin = devanagariToLatinDigits(digits);
     return `Section ${latin} (कलम ${latin})`;
+  });
+
+  result = result.replace(/(धारा\s+)([०-९]+)/gi, (_, prefix, digits) => {
+    const latin = devanagariToLatinDigits(digits);
+    return `Section ${latin} (धारा ${latin})`;
   });
 
   // 2. Marathi spoken section names
@@ -181,8 +231,23 @@ export function normalizeSectionNumbers(text: string): string {
     result = result.replace(reg, `Section ${sectionNum} (कलम ${sectionNum})`);
   }
 
-  // 3. English "section <words or numbers>"
-  const sectionRegex = /\bsection\s+([a-zA-Z0-9\s\-]+?)(?=[,\.\?!;\n]|\s+of\b|\s+cpc\b|\s+crpc\b|\s+ipc\b|\s+read\b|\s+and\b|\s+अन्वये\b|$)/gi;
+  // 3. Hindi spoken section names
+  for (const [hindiPhrase, sectionNum] of Object.entries(HINDI_LEGAL_SECTIONS)) {
+    const reg = new RegExp(`धारा\\s+${hindiPhrase}`, "gi");
+    result = result.replace(reg, `Section ${sectionNum} (धारा ${sectionNum})`);
+  }
+
+  // 4. Hindi & Marathi digits after धारा or कलम
+  result = result.replace(/\bधारा\s+(\d+[a-zA-Z]?)/gi, (_, num) => {
+    return `Section ${num} (धारा ${num})`;
+  });
+
+  result = result.replace(/\bकलम\s+(\d+[a-zA-Z]?)/gi, (_, num) => {
+    return `Section ${num} (कलम ${num})`;
+  });
+
+  // 5. English "section <words or numbers>"
+  const sectionRegex = /\bsection\s+([a-zA-Z0-9\s\-]+?)(?=[,\.\?!;\n]|\s+of\b|\s+cpc\b|\s+crpc\b|\s+ipc\b|\s+read\b|\s+and\b|\s+अन्वये\b|\s+के\s+तहत\b|$)/gi;
 
   result = result.replace(sectionRegex, (match, words) => {
     const trimmed = words.trim();
@@ -201,20 +266,21 @@ export function normalizeSectionNumbers(text: string): string {
 }
 
 /**
- * Replaces voice punctuation instructions in English and Marathi with symbols:
+ * Replaces voice punctuation instructions in English, Marathi, and Hindi with symbols:
  * English: "full stop", "comma", "colon", "semicolon", "next paragraph", "new line"
- * Marathi: "पूर्णविराम", "पूर्ण विराम", "स्वल्पविराम", "नवीन परिच्छेद", "पुढील परिच्छेद", "नवीन ओळ", "प्रश्नचिन्ह"
+ * Marathi: "पूर्णविराम", "पूर्ण विराम", "स्वल्पविराम", "नवीन परिच्छेद", "पुढील परिच्छेद", "नवीन ओळ"
+ * Hindi: "पूर्ण विराम", "पूर्णविराम", "अल्पविराम", "अगला पैराग्राफ", "नया पैराग्राफ", "अगली पंक्ति"
  */
 export function normalizeVoicePunctuation(text: string): string {
   let result = text;
 
-  // New paragraphs and lines (English & Marathi)
+  // New paragraphs and lines (English, Marathi & Hindi)
   result = result.replace(
-    /\b(?:next\s+paragraph|new\s+paragraph)\b|(?:नवीन\s+परिच्छेद|पुढील\s+परिच्छेद|नवीन\s+पॅरा)/gi,
+    /\b(?:next\s+paragraph|new\s+paragraph)\b|(?:नवीन\s+परिच्छेद|पुढील\s+परिच्छेद|नवीन\s+पॅरा|अगला\s+पैराग्राफ|नया\s+पैराग्राफ|नवीन\s+पैराग्राफ)/gi,
     "\n\n"
   );
   result = result.replace(
-    /\b(?:new\s+line|next\s+line)\b|(?:नवीन\s+ओळ|पुढील\s+ओळ)/gi,
+    /\b(?:new\s+line|next\s+line)\b|(?:नवीन\s+ओळ|पुढील\s+ओळ|अगली\s+पंक्ति|नई\s+लाइन)/gi,
     "\n"
   );
 
@@ -224,8 +290,8 @@ export function normalizeVoicePunctuation(text: string): string {
     "."
   );
 
-  // Comma / स्वल्पविराम
-  result = result.replace(/\bcomma\b|(?:स्वल्प\s*विराम|स्वल्पविराम)/gi, ",");
+  // Comma / स्वल्पविराम / अल्पविराम
+  result = result.replace(/\bcomma\b|(?:स्वल्प\s*विराम|स्वल्पविराम|अल्प\s*विराम|अल्पविराम)/gi, ",");
 
   // Colon / विसर्ग
   result = result.replace(/\bcolon\b|(?:विसर्ग)/gi, ":");
@@ -234,7 +300,7 @@ export function normalizeVoicePunctuation(text: string): string {
   result = result.replace(/\bsemi[\s\-]?colon\b|(?:अर्धविराम)/gi, ";");
 
   // Question mark / प्रश्नचिन्ह
-  result = result.replace(/\bquestion\s+mark\b|(?:प्रश्न\s*चिन्ह|प्रश्नचिन्ह)/gi, "?");
+  result = result.replace(/\bquestion\s+mark\b|(?:प्रश्न\s*चिन्ह|प्रश्नचिन्ह|प्रश्नवाचक\s*चिन्ह)/gi, "?");
 
   return result;
 }
@@ -254,7 +320,7 @@ const LEGAL_TERMS: Array<[RegExp, string]> = [
   [/\bdistrict\s+court\b/gi, "District Court"],
   [/\bsessions\s+court\b/gi, "Sessions Court"],
 
-  // Courts & Honors (Marathi)
+  // Courts & Honors (Marathi & Hindi)
   [/(?:मा\.\s*न्यायालय|माननीय\s+न्यायालय|मा\.\s*कोर्ट|माननीय\s+कोर्ट)/gi, "Hon'ble Court (मा. न्यायालय)"],
   [/(?:मा\.\s*उच्च\s+न्यायालय|माननीय\s+उच्च\s+न्यायालय)/gi, "Hon'ble High Court (मा. उच्च न्यायालय)"],
   [/(?:मा\.\s*सर्वोच्च\s+न्यायालय|माननीय\s+सर्वोच्च\s+न्यायालय)/gi, "Hon'ble Supreme Court (मा. सर्वोच्च न्यायालय)"],
@@ -266,14 +332,26 @@ const LEGAL_TERMS: Array<[RegExp, string]> = [
   [/\b(?:the\s+)?code\s+of\s+criminal\s+procedure\b/gi, "CrPC"],
   [/\bcriminal\s+procedure\s+code\b/gi, "CrPC"],
   [/\b(?:the\s+)?indian\s+penal\s+code\b/gi, "IPC"],
+  [/\b(?:the\s+)?indian\s+evidence\s+act\b/gi, "Indian Evidence Act"],
+  [/\bevidence\s+act\b/gi, "Evidence Act"],
+  [/\b(?:the\s+)?arms\s+act\b/gi, "Arms Act"],
+  [/\bnegotiable\s+instruments\s+act\b/gi, "Negotiable Instruments Act"],
+  [/\bni\s+act\b/gi, "NI Act"],
+  [/\bpolice\s+act\b/gi, "Police Act"],
   [/\bbharatiya\s+nyaya\s+sanhita\b/gi, "BNS"],
   [/\bbharatiya\s+nagarik\s+suraksha\s+sanhita\b/gi, "BNSS"],
   [/\bbharatiya\s+sakshya\s+adhiniyam\b/gi, "BSA"],
 
-  // Statutes & Codes (Marathi)
+  // Statutes & Codes (Marathi & Hindi)
   [/दिवाणी\s+प्रक्रिया\s+संहिता/gi, "CPC (दिवाणी प्रक्रिया संहिता)"],
+  [/सिविल\s+प्रक्रिया\s+संहिता/gi, "CPC (सिविल प्रक्रिया संहिता)"],
   [/फौजदारी\s+प्रक्रिया\s+संहिता/gi, "CrPC (फौजदारी प्रक्रिया संहिता)"],
+  [/दंड\s+प्रक्रिया\s+संहिता/gi, "CrPC (दंड प्रक्रिया संहिता)"],
   [/भारतीय\s+दंड\s+संहिता/gi, "IPC (भारतीय दंड संहिता)"],
+  [/भारतीय\s+पुरावा\s+कायदा/gi, "Indian Evidence Act (भारतीय पुरावा कायदा)"],
+  [/भारतीय\s+शस्त्र\s+कायदा/gi, "Arms Act (भारतीय शस्त्र कायदा)"],
+  [/निगोशिएबल\s+इन्स्ट्रुमेंट\s+ॲक्ट/gi, "NI Act (निगोशिएबल इन्स्ट्रुमेंट ॲक्ट)"],
+  [/पोलीस\s+कायदा/gi, "Police Act (पोलीस कायदा)"],
 
   // Parties & Roles (English)
   [/\bapplicant\b/gi, "Applicant"],
@@ -286,19 +364,99 @@ const LEGAL_TERMS: Array<[RegExp, string]> = [
   [/\bappellants\b/gi, "Appellants"],
   [/\bplaintiff\b/gi, "Plaintiff"],
   [/\bdefendant\b/gi, "Defendant"],
+  [/\bcomplainant\b/gi, "Complainant"],
+  [/\bprosecution\s+witness\b/gi, "Prosecution Witness"],
+  [/\bjudicial\s+magistrate\s+first\s+class\b/gi, "Judicial Magistrate First Class (JMFC)"],
+  [/\bexecutive\s+magistrate\b/gi, "Executive Magistrate"],
+  [/\bcasualty\s+medical\s+officer\b/gi, "Casualty Medical Officer (CMO)"],
+  [/\binvestigating\s+officer\b/gi, "Investigating Officer (IO)"],
+  [/\bstenographer\b/gi, "Stenographer"],
+  [/\bcourt\s+master\b/gi, "Court Master"],
 
-  // Parties & Roles (Marathi)
+  // Parties & Roles (Marathi & Hindi)
   [/अर्जदार(?=[\s\.,]|$)/gi, "Applicant (अर्जदार)"],
-  [/(?:सामनावाला|गैरअर्जदार|प्रतिवादी)(?=[\s\.,]|$)/gi, "Respondent (सामनावाला/प्रतिवादी)"],
+  [/आवेदक(?=[\s\.,]|$)/gi, "Applicant (आवेदक)"],
+  [/(?:सामनावाला|गैरअर्जदार|प्रतिवादी|अनावेदक)(?=[\s\.,]|$)/gi, "Respondent (प्रतिवादी)"],
   [/याचिकाकर्ता(?=[\s\.,]|$)/gi, "Petitioner (याचिकाकर्ता)"],
   [/अपीलकर्ता(?=[\s\.,]|$)/gi, "Appellant (अपीलकर्ता)"],
+  [/फिर्यादी(?=[\s\.,]|$)/gi, "Complainant (फिर्यादी)"],
+  [/मयत(?=[\s\.,]|$)/gi, "Deceased (मयत)"],
+  [/शिरस्तेदार(?=[\s\.,]|$)/gi, "Court Master (शिरस्तेदार)"],
+  [/तपासी\s+अधिकारी(?=[\s\.,]|$)/gi, "Investigating Officer (तपासी अधिकारी)"],
+  [/कार्यकारी\s+दंडाधिकारी(?=[\s\.,]|$)/gi, "Executive Magistrate (कार्यकारी दंडाधिकारी)"],
+  [/प्रथम\s+वर्ग\s+न्यायदंडाधिकारी(?=[\s\.,]|$)/gi, "JMFC (प्रथम वर्ग न्यायदंडाधिकारी)"],
 
-  // Legal phrasing (English & Marathi)
+  // Legal Counsel & Phrasing (English & Marathi)
+  [/\blearned\s+additional\s+public\s+prosecutor\b/gi, "Learned APP"],
+  [/\blearned\s+app\b/gi, "Learned APP"],
+  [/\badditional\s+public\s+prosecutor\b/gi, "Additional Public Prosecutor"],
+  [/\bpublic\s+prosecutor\b/gi, "Public Prosecutor"],
+  [/\blearned\s+defense\s+counsel\b/gi, "Learned Defense Counsel"],
+  [/\bdefense\s+counsel\b/gi, "Defense Counsel"],
   [/\blearned\s+counsel\b/gi, "Learned Counsel"],
   [/\blearned\s+advocate\b/gi, "Learned Advocate"],
+  [/(?:सरकारी\s+वकील)/gi, "Public Prosecutor (सरकारी वकील)"],
+  [/(?:अतिरिक्त\s+सरकारी\s+वकील)/gi, "Learned APP (अतिरिक्त सरकारी वकील)"],
+  [/(?:बचाव\s+पक्षाचे\s+वकील)/gi, "Defense Counsel (बचाव पक्षाचे वकील)"],
   [/(?:विद्वान\s+वकील|विद्वान\s+अधिवक्ता)/gi, "Learned Advocate"],
+
+  // Courtroom Trial & Evidentiary Procedure
+  [/\bexamination[\s\-]in[\s\-]chief\b/gi, "Examination-in-Chief"],
+  [/\bcross[\s\-]examination\b/gi, "Cross-Examination"],
+  [/\bre[\s\-]examination\b/gi, "Re-examination"],
+  [/सरतपासणी(?=[\s\.,\-]|$)/gi, "Examination-in-Chief (सरतपासणी)"],
+  [/उलटतपासणी(?=[\s\.,\-]|$)/gi, "Cross-Examination (उलटतपासणी)"],
+  [/फेरतपासणी(?=[\s\.,\-]|$)/gi, "Re-examination (फेरतपासणी)"],
+
+  [/\bobjection\s+overruled\b/gi, "Objection Overruled"],
+  [/\bobjection\s+sustained\b/gi, "Objection Sustained"],
+  [/आक्षेप\s+फेटाळण्यात\s+आला/gi, "Objection Overruled (आक्षेप फेटाळण्यात आला)"],
+
+  [/\bjudicial\s+custody\b/gi, "Judicial Custody"],
+  [/\bpolice\s+custody\s+remand\b/gi, "Police Custody Remand (PCR)"],
+  [/\bpolice\s+custody\b/gi, "Police Custody"],
+  [/न्यायालयीन\s+कोठडी/gi, "Judicial Custody (न्यायालयीन कोठडी)"],
+  [/पोलीस\s+कोठडी/gi, "Police Custody (पोलीस कोठडी)"],
+
+  [/\bbail\s+bond\b/gi, "Bail Bond"],
+  [/जामीन\s+मुचलका/gi, "Bail Bond (जामीन मुचलका)"],
+  [/\bbailable\s+warrant\b/gi, "Bailable Warrant"],
+  [/जामीनपात्र\s+वॉरंट/gi, "Bailable Warrant (जामीनपात्र वॉरंट)"],
+  [/\bnon[\s\-]bailable\s+warrant\b/gi, "Non-Bailable Warrant"],
+  [/अजामीनपात्र\s+वॉरंट/gi, "Non-Bailable Warrant (अजामीनपात्र वॉरंट)"],
+
+  [/\bspot\s+panchnama\b/gi, "Spot Panchnama"],
+  [/घटनास्थळ\s+पंचनामा/gi, "Spot Panchnama (घटनास्थळ पंचनामा)"],
+  [/\bseizure\s+panchnama\b/gi, "Seizure Panchnama"],
+  [/जप्ती\s+पंचनामा/gi, "Seizure Panchnama (जप्ती पंचनामा)"],
+  [/\brecovery\s+panchnama\b/gi, "Recovery Panchnama"],
+  [/\bdisclosure\s+statement\b/gi, "Disclosure Statement"],
+  [/प्रकटीकरण\s+जबाब/gi, "Disclosure Statement (प्रकटीकरण जबाब)"],
+
+  [/\btest\s+identification\s+parade\b/gi, "Test Identification Parade (TIP)"],
+  [/\btip\s+memo\b/gi, "TIP Memo"],
+  [/ओळख\s+परेड/gi, "TIP (ओळख परेड)"],
+
+  [/\bchargesheet\b|\bcharge[\s\-]sheet\b/gi, "Charge-Sheet"],
+  [/दोषारोपपत्र/gi, "Charge-Sheet (दोषारोपपत्र)"],
+
   [/\bfirst\s+information\s+report\b/gi, "FIR"],
   [/(?:प्रथम\s+खबरी\s+अहवाल|एफआयआर|एफ\.आय\.आर\.)/gi, "FIR"],
+  [/\bforensic\s+science\s+laboratory\b/gi, "FSL"],
+  [/न्यायवैद्यक\s+विज्ञान\s+प्रयोगशाळा/gi, "FSL (न्यायवैद्यक विज्ञान प्रयोगशाळा)"],
+  [/\bballistics?\s+report\b/gi, "Ballistics Report"],
+  [/बॅलेस्टिक्स\s+अहवाल|बॅलेस्टिक्स\s+रिपोर्ट/gi, "Ballistics Report (बॅलेस्टिक्स अहवाल)"],
+  [/\bpost[\s\-]mortem\s+report\b/gi, "Post-Mortem Report"],
+  [/शवविच्छेदन\s+अहवाल/gi, "Post-Mortem Report (शवविच्छेदन अहवाल)"],
+
+  [/\bmalkhana\b/gi, "Malkhana"],
+  [/मालखाना/gi, "Malkhana (मालखाना)"],
+  [/\bchain\s+of\s+custody\b/gi, "Chain of Custody"],
+  [/ताब्याची\s+साखळी/gi, "Chain of Custody (ताब्याची साखळी)"],
+
+  [/\bsessions\s+case\s+number\b|\bsessions\s+case\s+no\.?\b/gi, "Sessions Case No."],
+  [/सत्र\s+खटला\s+क्रमांक/gi, "Sessions Case No. (सत्र खटला क्रमांक)"],
+
   [/\binterim\s+application\b/gi, "IA"],
   [/(?:अंतरिम\s+अर्ज|आय\.ए\.)/gi, "IA (Interim Application)"],
   [/\bspecial\s+leave\s+petition\b/gi, "SLP"],

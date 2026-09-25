@@ -1,7 +1,7 @@
 import React from "react";
 import { Globe } from "lucide-react";
 
-export type SupportedLanguage = "mixed" | "en" | "mr" | "auto";
+export type SupportedLanguage = "en" | "mr" | "hi" | "auto";
 
 interface LanguageOption {
   id: SupportedLanguage;
@@ -12,20 +12,20 @@ interface LanguageOption {
 
 const LANGUAGES: LanguageOption[] = [
   {
-    id: "mixed",
-    label: "English + Marathi",
-    nativeLabel: "इंग्रजी + मराठी",
-    badge: "Combined",
-  },
-  {
     id: "en",
-    label: "English Only",
-    nativeLabel: "फक्त इंग्रजी",
+    label: "English",
+    nativeLabel: "इंग्रजी",
+    badge: "Default",
   },
   {
     id: "mr",
-    label: "Marathi Only",
-    nativeLabel: "फक्त मराठी",
+    label: "Marathi",
+    nativeLabel: "मराठी",
+  },
+  {
+    id: "hi",
+    label: "Hindi",
+    nativeLabel: "हिंदी",
   },
   {
     id: "auto",
@@ -56,7 +56,7 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
           Language / भाषा
         </label>
         <span className="text-[11px] font-semibold text-court-700 bg-court-50 border border-court-200 px-2 py-0.5 rounded-full">
-          English &amp; मराठी
+          Explicit Selection
         </span>
       </div>
 
@@ -88,6 +88,9 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
           </svg>
         </div>
       </div>
+      <p className="text-[11px] text-slate-500">
+        Court demo recommendation: Keep English selected for standard proceedings.
+      </p>
     </div>
   );
 };
