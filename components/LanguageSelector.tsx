@@ -1,7 +1,7 @@
 import React from "react";
 import { Globe } from "lucide-react";
 
-export type SupportedLanguage = "en" | "mr" | "hi" | "auto";
+export type SupportedLanguage = "combined" | "en" | "mr" | "hi";
 
 interface LanguageOption {
   id: SupportedLanguage;
@@ -12,25 +12,25 @@ interface LanguageOption {
 
 const LANGUAGES: LanguageOption[] = [
   {
-    id: "en",
-    label: "English",
-    nativeLabel: "इंग्रजी",
+    id: "combined",
+    label: "English + Marathi (Auto / Stenographer)",
+    nativeLabel: "इंग्रजी + मराठी",
     badge: "Default",
   },
   {
+    id: "en",
+    label: "English (Court Orders & Trial)",
+    nativeLabel: "इंग्रजी",
+  },
+  {
     id: "mr",
-    label: "Marathi",
+    label: "Marathi (मराठी कामकाज व निकाल)",
     nativeLabel: "मराठी",
   },
   {
     id: "hi",
-    label: "Hindi",
+    label: "Hindi (हिंदी आदेश)",
     nativeLabel: "हिंदी",
-  },
-  {
-    id: "auto",
-    label: "Auto Detect",
-    nativeLabel: "स्वयं ओळख",
   },
 ];
 
@@ -89,7 +89,7 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
         </div>
       </div>
       <p className="text-[11px] text-slate-500">
-        Court demo recommendation: Keep English selected for standard proceedings.
+        Stenographer auto-detects English or Marathi verbatim without translating.
       </p>
     </div>
   );

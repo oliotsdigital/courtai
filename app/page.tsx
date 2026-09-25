@@ -24,7 +24,10 @@ import {
   appendTranscriptText,
   AudioDebugInfo,
 } from "@/lib/audio";
-import { normalizeLegalTranscript } from "@/lib/legalNormalizer";
+import {
+  normalizeLegalTranscript,
+  isHallucination,
+} from "@/lib/legalNormalizer";
 
 const SAMPLE_ENGLISH_TRANSCRIPT = `The Applicant has filed an application under Section 144 of the CPC.
 
@@ -48,32 +51,36 @@ export default function CourtAiPage() {
   const [statusMessage, setStatusMessage] = useState("Ready / तयार");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Settings: Default to English as explicitly requested for court demo
-  const [language, setLanguage] = useState<SupportedLanguage>("en");
+  // Settings: Default to "combined" (English + Marathi auto-detect verbatim stenographer)
+  const [language, setLanguage] = useState<SupportedLanguage>("combined");
   const [mode, setMode] = useState<TranscriptionMode>("court_draft");
   const [transcript, setTranscript] = useState("");
 
   // Live Feedback & Debugging
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [isLiveTyping, setIsLiveTyping] = useState(false);
   const [debugInfo, setDebugInfo] = useState<AudioDebugInfo | null>(null);
   const [canRetry, setCanRetry] = useState(false);
 
   // Audio References
   const streamRef = useRef<MediaStream | null>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const durationTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const chunkIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Recording Session State Tracking
-  const chunksRef = useRef<Blob[]>([]);
-  const startTimeRef = useRef<number>(0);
-  const maxVolumeRef = useRef<number>(0);
-  const hasVoiceActivityRef = useRef<boolean>(false);
-  const lastRecordedBlobRef = useRef<Blob | null>(null);
+  // Progressive Real-Time Stenographer State Tracking
+  const activeRecorderRef = useRef<MediaRecorder | null>(null);
+  const isRecordingRef = useRef<boolean>(false);
   const isProcessingRef = useRef<boolean>(false);
+  const speechFramesInSliceRef = useRef<number>(0);
+  const overallVoiceDetectedRef = useRef<boolean>(false);
+  const maxVolumeRef = useRef<number>(0);
+  const transcriptionQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const totalChunksProcessedRef = useRef<number>(0);
+  const lastRecordedBlobRef = useRef<Blob | null>(null);
   const currentSessionIdRef = useRef<string>("");
 
   // Clean up all audio hardware resources safely
@@ -85,6 +92,10 @@ export default function CourtAiPage() {
     if (durationTimerRef.current) {
       clearInterval(durationTimerRef.current);
       durationTimerRef.current = null;
+    }
+    if (chunkIntervalRef.current) {
+      clearInterval(chunkIntervalRef.current);
+      chunkIntervalRef.current = null;
     }
     if (audioContextRef.current && audioContextRef.current.state !== "closed") {
       audioContextRef.current.close().catch(() => {});
@@ -99,105 +110,137 @@ export default function CourtAiPage() {
     setAudioLevel(0);
   }, []);
 
-  // Post audio blob to /api/transcribe and handle STT result
-  const processTranscription = useCallback(
-    async (audioBlob: Blob, durationSec: number, sessionId: string) => {
-      if (isProcessingRef.current) return;
-      isProcessingRef.current = true;
-      setDictationState("processing");
-      setStatusMessage("Processing speech... Converting audio to text.");
-      setErrorMessage(null);
-
+  // Post single audio slice blob to /api/transcribe and append live to document
+  const queueChunkForTranscription = useCallback(
+    (audioBlob: Blob, sessionId: string) => {
       const mimeInfo = getSupportedAudioMimeType();
-      const extension = mimeInfo.extension || (audioBlob.type.includes("mp4") ? "mp4" : "webm");
+      const extension =
+        mimeInfo.extension || (audioBlob.type.includes("mp4") ? "mp4" : "webm");
+      const chunkIndex = ++totalChunksProcessedRef.current;
 
-      try {
-        const formData = new FormData();
-        formData.append(
-          "audio",
-          audioBlob,
-          `court_dictation_${sessionId}.${extension}`
-        );
-        formData.append("language", language);
+      const task = async () => {
+        try {
+          setIsLiveTyping(true);
+          const formData = new FormData();
+          formData.append(
+            "audio",
+            audioBlob,
+            `court_chunk_${chunkIndex}_${sessionId}.${extension}`
+          );
+          formData.append("language", language);
 
-        const response = await fetch("/api/transcribe", {
-          method: "POST",
-          body: formData,
-        });
+          const response = await fetch("/api/transcribe", {
+            method: "POST",
+            body: formData,
+          });
 
-        const data = await response.json();
+          const data = await response.json();
 
-        if (!response.ok) {
-          throw new Error(data.error || "Unable to transcribe this recording.");
+          if (!response.ok) {
+            console.warn(`[Chunk ${chunkIndex} Error]:`, data.error);
+            return;
+          }
+
+          const rawText: string = (data.rawText || data.text || "").trim();
+          // Filter out empty text and silence/ambient hallucinations
+          if (!rawText || isHallucination(rawText)) return;
+
+          // Apply legal normalization deterministically
+          let finalText = rawText;
+          if (mode === "court_draft") {
+            finalText = normalizeLegalTranscript(rawText, "court_draft");
+          } else if (mode === "verbatim") {
+            finalText = normalizeLegalTranscript(rawText, "verbatim");
+          } else if (mode === "translate") {
+            finalText = normalizeLegalTranscript(rawText, "translate");
+          }
+
+          if (!finalText || isHallucination(finalText)) return;
+
+          // Live append to transcript editor with smart word overlap deduplication
+          setTranscript((prev) => appendTranscriptText(prev, finalText));
+
+          // Update stenographer live typing indicator
+          setStatusMessage(
+            `✍️ Stenographer typed: "${finalText.slice(0, 36)}${
+              finalText.length > 36 ? "..." : ""
+            }"`
+          );
+
+          // Update developer debug diagnostics
+          setDebugInfo({
+            mimeType: audioBlob.type || mimeInfo.mimeType,
+            sizeKb: `${(audioBlob.size / 1024).toFixed(1)} KB`,
+            sizeBytes: audioBlob.size,
+            durationSeconds: "4.0s (Live Chunk)",
+            language: language,
+            model: data.model || "whisper-1",
+            rawTranscript: rawText,
+            finalTranscript: finalText,
+            voiceDetected: true,
+            timestamp: new Date().toLocaleTimeString(),
+          });
+        } catch (err) {
+          console.error(`[Chunk ${chunkIndex} Processing Failed]:`, err);
+        } finally {
+          setTimeout(() => {
+            setIsLiveTyping(false);
+          }, 1200);
         }
+      };
 
-        const rawText: string = (data.rawText || data.text || "").trim();
-
-        if (!rawText) {
-          setDictationState("ready");
-          setErrorMessage("No speech detected. Please try again.");
-          setStatusMessage("Ready / तयार");
-          lastRecordedBlobRef.current = null;
-          setCanRetry(false);
-          return;
-        }
-
-        // Apply legal normalization deterministically AFTER STT
-        let finalText = rawText;
-        if (mode === "court_draft") {
-          finalText = normalizeLegalTranscript(rawText, "court_draft");
-        } else if (mode === "verbatim") {
-          finalText = normalizeLegalTranscript(rawText, "verbatim");
-        } else if (mode === "translate") {
-          finalText = normalizeLegalTranscript(rawText, "translate");
-        }
-
-        // Update main document transcript
-        setTranscript((prev) => appendTranscriptText(prev, finalText));
-
-        // Update developer debug diagnostics
-        setDebugInfo({
-          mimeType: audioBlob.type || mimeInfo.mimeType,
-          sizeKb: `${(audioBlob.size / 1024).toFixed(1)} KB`,
-          sizeBytes: audioBlob.size,
-          durationSeconds: `${durationSec.toFixed(1)} seconds`,
-          language: language,
-          model: data.model || "whisper-1",
-          rawTranscript: rawText,
-          finalTranscript: finalText,
-          voiceDetected: true,
-          timestamp: new Date().toLocaleTimeString(),
-        });
-
-        // Transition to success
-        setDictationState("success");
-        setStatusMessage("✓ Transcription complete");
-        lastRecordedBlobRef.current = null;
-        setCanRetry(false);
-
-        // Reset state back to ready after 2.5s for seamless next dictation
-        setTimeout(() => {
-          setDictationState((curr) => (curr === "success" ? "ready" : curr));
-          setStatusMessage("Ready / तयार");
-        }, 2500);
-      } catch (err: unknown) {
-        console.error("[Transcription Error]:", err);
-        const errMessage =
-          err instanceof Error
-            ? err.message
-            : "Unable to transcribe this recording.";
-        setErrorMessage(errMessage);
-        setDictationState("error");
-        setStatusMessage("Transcription error");
-        setCanRetry(true);
-      } finally {
-        isProcessingRef.current = false;
-      }
+      // Ensure strictly sequential, in-order transcription appending
+      transcriptionQueueRef.current = transcriptionQueueRef.current.then(
+        task,
+        task
+      );
     },
     [language, mode]
   );
 
-  // START DICTATION: Initiate clean microphone recording session
+  // Instantiate and start a standalone audio slice recorder on the current stream
+  const startNewSliceRecorder = useCallback(
+    (sessionId: string) => {
+      if (!streamRef.current || !isRecordingRef.current) return;
+
+      const mimeInfo = getSupportedAudioMimeType();
+      const recorder = mimeInfo.mimeType
+        ? new MediaRecorder(streamRef.current, { mimeType: mimeInfo.mimeType })
+        : new MediaRecorder(streamRef.current);
+
+      const sliceChunks: Blob[] = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          sliceChunks.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        // Sustained speech check: require at least 8 frames (~130ms) of sustained speech energy (>= 12% volume)
+        // Completely suppresses ambient room noise, typing, and quiet breathing so silence is NEVER sent to the API
+        const speechFrames = speechFramesInSliceRef.current;
+        speechFramesInSliceRef.current = 0; // reset for next slice
+
+        const hasSustainedSpeech = speechFrames >= 8;
+
+        if (sliceChunks.length > 0 && hasSustainedSpeech) {
+          overallVoiceDetectedRef.current = true;
+          const finalMime =
+            mimeInfo.mimeType || recorder.mimeType || "audio/webm";
+          const sliceBlob = new Blob(sliceChunks, { type: finalMime });
+          lastRecordedBlobRef.current = sliceBlob;
+          queueChunkForTranscription(sliceBlob, sessionId);
+        }
+      };
+
+      activeRecorderRef.current = recorder;
+      recorder.start(250);
+    },
+    [queueChunkForTranscription]
+  );
+
+  // START DICTATION: Real-time stenographer recording session
   const startDictation = async () => {
     setErrorMessage(null);
     setCanRetry(false);
@@ -220,7 +263,6 @@ export default function CourtAiPage() {
       try {
         stream = await navigator.mediaDevices.getUserMedia(getAudioConstraints());
       } catch {
-        // Fallback for browsers with restricted constraint support
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       }
 
@@ -230,7 +272,8 @@ export default function CourtAiPage() {
       try {
         const AudioContextClass =
           window.AudioContext ||
-          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+          (window as unknown as { webkitAudioContext: typeof AudioContext })
+            .webkitAudioContext;
         if (AudioContextClass) {
           const ctx = new AudioContextClass();
           const analyser = ctx.createAnalyser();
@@ -251,16 +294,20 @@ export default function CourtAiPage() {
               sum += dataArray[i];
             }
             const average = sum / dataArray.length;
-            const normalizedLevel = Math.min(100, Math.round((average / 128) * 100));
+            const normalizedLevel = Math.min(
+              100,
+              Math.round((average / 128) * 100)
+            );
 
             setAudioLevel(normalizedLevel);
             if (normalizedLevel > maxVolumeRef.current) {
               maxVolumeRef.current = normalizedLevel;
             }
 
-            // If audio volume exceeds 6%, mark meaningful voice activity
-            if (normalizedLevel >= 6) {
-              hasVoiceActivityRef.current = true;
+            // Real voice detection: genuine speech produces >= 12% energy
+            // Count frames to distinguish genuine speech from transient background noise
+            if (normalizedLevel >= 12) {
+              speechFramesInSliceRef.current += 1;
             }
 
             animFrameRef.current = requestAnimationFrame(updateAudioLevel);
@@ -271,60 +318,20 @@ export default function CourtAiPage() {
         console.warn("Web Audio Analyser not available:", audioCtxErr);
       }
 
-      // 3. Set up MediaRecorder with best supported MIME type
-      const mimeInfo = getSupportedAudioMimeType();
-      const recorder = mimeInfo.mimeType
-        ? new MediaRecorder(stream, { mimeType: mimeInfo.mimeType })
-        : new MediaRecorder(stream);
-
-      recorderRef.current = recorder;
-      chunksRef.current = [];
-      maxVolumeRef.current = 0;
-      hasVoiceActivityRef.current = false;
-      startTimeRef.current = Date.now();
-      const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      // 3. Initialize real-time stenographer session
+      const sessionId = `session_${Date.now()}_${Math.random()
+        .toString(36)
+        .substring(2, 7)}`;
       currentSessionIdRef.current = sessionId;
+      isRecordingRef.current = true;
+      maxVolumeRef.current = 0;
+      overallVoiceDetectedRef.current = false;
+      speechFramesInSliceRef.current = 0;
+      totalChunksProcessedRef.current = 0;
+      transcriptionQueueRef.current = Promise.resolve();
 
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          chunksRef.current.push(event.data);
-        }
-      };
-
-      recorder.onstop = () => {
-        const elapsedSec = (Date.now() - startTimeRef.current) / 1000;
-        cleanupAudioHardware();
-
-        // Verification 1: Minimum Audio Duration (< 0.8 seconds check)
-        if (elapsedSec < 0.8) {
-          setDictationState("ready");
-          setErrorMessage("Please speak for at least a moment before stopping.");
-          setStatusMessage("Ready / तयार");
-          return;
-        }
-
-        // Verification 2: Silence Detection Check
-        if (!hasVoiceActivityRef.current && maxVolumeRef.current < 5) {
-          setDictationState("ready");
-          setErrorMessage("No speech detected. Please try again.");
-          setStatusMessage("Ready / तयार");
-          return;
-        }
-
-        // Form final single audio Blob
-        if (chunksRef.current.length > 0) {
-          const finalMime = mimeInfo.mimeType || recorder.mimeType || "audio/webm";
-          const audioBlob = new Blob(chunksRef.current, { type: finalMime });
-          lastRecordedBlobRef.current = audioBlob;
-          processTranscription(audioBlob, elapsedSec, sessionId);
-        } else {
-          setDictationState("ready");
-          setErrorMessage("No audio data was captured.");
-        }
-      };
-
-      // Start recording single continuous audio session
-      recorder.start(250);
+      // Start initial slice recorder
+      startNewSliceRecorder(sessionId);
 
       // Start UI duration timer
       setRecordingDuration(0);
@@ -332,8 +339,29 @@ export default function CourtAiPage() {
         setRecordingDuration((prev) => prev + 1);
       }, 1000);
 
+      // 4. Rolling slice rotation every 4.0 seconds for real-time progressive typing
+      const CHUNK_WINDOW_MS = 4000;
+      chunkIntervalRef.current = setInterval(() => {
+        if (!isRecordingRef.current) return;
+
+        const prevRecorder = activeRecorderRef.current;
+        // Start next recorder immediately on the same stream to avoid missing speech samples
+        startNewSliceRecorder(sessionId);
+
+        // Stop previous recorder; its onstop triggers and dispatches chunk to transcription queue
+        if (prevRecorder && prevRecorder.state === "recording") {
+          try {
+            prevRecorder.stop();
+          } catch (e) {
+            console.warn("Error stopping slice recorder:", e);
+          }
+        }
+      }, CHUNK_WINDOW_MS);
+
       setDictationState("recording");
-      setStatusMessage("🔴 Listening... Speak clearly into your microphone.");
+      setStatusMessage(
+        "🔴 Stenographer listening... Transcribing live in English & Marathi."
+      );
     } catch (err: unknown) {
       console.error("Microphone startup error:", err);
       cleanupAudioHardware();
@@ -359,23 +387,75 @@ export default function CourtAiPage() {
     }
   };
 
-  // STOP & TRANSCRIBE: Explicit stop action requested by user
-  const stopDictation = useCallback(() => {
-    if (recorderRef.current && recorderRef.current.state === "recording") {
-      recorderRef.current.stop();
-    } else {
+  // STOP & TRANSCRIBE: Finalize remaining speech and complete stenographer dictation
+  const stopDictation = useCallback(async () => {
+    if (!isRecordingRef.current) {
       cleanupAudioHardware();
       setDictationState("ready");
       setStatusMessage("Ready / तयार");
+      return;
     }
-  }, [cleanupAudioHardware]);
+
+    isRecordingRef.current = false;
+
+    // Stop chunk rotation timer
+    if (chunkIntervalRef.current) {
+      clearInterval(chunkIntervalRef.current);
+      chunkIntervalRef.current = null;
+    }
+
+    // Stop active slice recorder to flush final phrase
+    const lastRecorder = activeRecorderRef.current;
+    if (lastRecorder && lastRecorder.state === "recording") {
+      try {
+        lastRecorder.stop();
+      } catch (e) {
+        console.warn("Error stopping final recorder:", e);
+      }
+    }
+
+    // Clean up microphone hardware
+    cleanupAudioHardware();
+
+    setDictationState("processing");
+    setStatusMessage("Stenographer finalizing transcript...");
+
+    // Wait for all remaining queued chunks to finish transcribing
+    try {
+      await transcriptionQueueRef.current;
+    } catch (queueErr) {
+      console.error("Queue finalize error:", queueErr);
+    }
+
+    // Evaluate final transcription outcome
+    if (totalChunksProcessedRef.current > 0 || transcript.trim().length > 0) {
+      setDictationState("success");
+      setStatusMessage("✓ Transcript finalized by Stenographer");
+      setCanRetry(false);
+
+      setTimeout(() => {
+        setDictationState((curr) => (curr === "success" ? "ready" : curr));
+        setStatusMessage("Ready / तयार");
+      }, 2500);
+    } else if (!overallVoiceDetectedRef.current) {
+      setDictationState("ready");
+      setErrorMessage(
+        "No speech detected. Please speak clearly into your microphone."
+      );
+      setStatusMessage("Ready / तयार");
+      setCanRetry(false);
+    } else {
+      setDictationState("ready");
+      setStatusMessage("Ready / तयार");
+      setCanRetry(false);
+    }
+  }, [cleanupAudioHardware, transcript]);
 
   // RETRY: Try transcription again with last saved audio blob without re-speaking
   const handleRetryLastAudio = () => {
     if (lastRecordedBlobRef.current) {
-      processTranscription(
+      queueChunkForTranscription(
         lastRecordedBlobRef.current,
-        recordingDuration || 5,
         currentSessionIdRef.current || `retry_${Date.now()}`
       );
     } else {
@@ -478,6 +558,7 @@ export default function CourtAiPage() {
             presidingOfficer: "District & Sessions Judge",
           }}
           disabled={dictationState === "processing"}
+          isLiveTyping={isLiveTyping}
         />
 
         {/* Court Demo Script Section */}

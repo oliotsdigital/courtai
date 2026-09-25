@@ -104,14 +104,39 @@ export function appendTranscriptText(
 
   const prev = existingText.trimEnd();
 
-  // If identical, do not re-append
+  // If already identical or already ends with exact chunk, skip
   if (prev.endsWith(cleanNew)) {
     return prev;
   }
 
-  // Check if incoming text starts with newline
+  // Handle explicit newlines
   if (cleanNew.startsWith("\n")) {
     return `${prev}\n\n${cleanNew.trimStart()}`;
+  }
+
+  // Multi-lingual word overlap deduplication (up to 6 words)
+  const norm = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  const prevWords = prev.split(/\s+/).filter(Boolean);
+  const nextWords = cleanNew.split(/\s+/).filter(Boolean);
+
+  const maxCheck = Math.min(prevWords.length, nextWords.length, 6);
+  let overlapCount = 0;
+
+  for (let k = maxCheck; k >= 1; k--) {
+    const prevSlice = prevWords.slice(-k).map(norm);
+    const nextSlice = nextWords.slice(0, k).map(norm);
+    if (
+      prevSlice.length === nextSlice.length &&
+      prevSlice.every((w, i) => w && w === nextSlice[i])
+    ) {
+      overlapCount = k;
+      break;
+    }
+  }
+
+  if (overlapCount > 0) {
+    const remainingNext = nextWords.slice(overlapCount).join(" ");
+    return remainingNext ? `${prev} ${remainingNext}` : prev;
   }
 
   // Check boundary punctuation

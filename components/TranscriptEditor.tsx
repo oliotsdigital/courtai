@@ -20,6 +20,7 @@ interface TranscriptEditorProps {
   onLoadSample: (type?: "english" | "marathi" | "sessions_trial") => void;
   caseMeta: CourtCaseMeta;
   disabled?: boolean;
+  isLiveTyping?: boolean;
 }
 
 export const TranscriptEditor: React.FC<TranscriptEditorProps> = ({
@@ -29,10 +30,18 @@ export const TranscriptEditor: React.FC<TranscriptEditorProps> = ({
   onLoadSample,
   caseMeta,
   disabled = false,
+  isLiveTyping = false,
 }) => {
   const [copied, setCopied] = useState(false);
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-scroll to latest words as stenographer streams text live
+  React.useEffect(() => {
+    if (isLiveTyping && textareaRef.current) {
+      textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
+    }
+  }, [transcript, isLiveTyping]);
 
   const stats = calculateTranscriptStats(transcript);
 
@@ -136,9 +145,17 @@ export const TranscriptEditor: React.FC<TranscriptEditorProps> = ({
 
       {/* Helper Context Subtitle */}
       <div className="px-4 py-1.5 bg-court-50/40 border-b border-slate-100 flex items-center justify-between text-[11px] text-slate-600">
-        <span>
-          <strong>Note:</strong> Review and edit the transcript before using it in a final court order or judgment.
-        </span>
+        <div className="flex items-center gap-2">
+          <span>
+            <strong>Court Stenographer:</strong> Speaks English or Marathi (मराठी) verbatim without translation.
+          </span>
+          {isLiveTyping && (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300 animate-pulse">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+              Typing Live...
+            </span>
+          )}
+        </div>
         <span className="hidden sm:inline text-court-700 font-medium">
           Editable Document View
         </span>
@@ -151,7 +168,7 @@ export const TranscriptEditor: React.FC<TranscriptEditorProps> = ({
           value={transcript}
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
-          placeholder="Final transcription will appear here after dictation is stopped and verified... You can also edit, correct, or touch-type directly into this court order."
+          placeholder="Court Stenographer will type verbatim here in real-time as you speak in English or Marathi... You can also edit, correct, or touch-type directly into this court order."
           rows={8}
           className="w-full min-h-[220px] sm:min-h-[260px] p-3 text-base leading-relaxed text-slate-900 placeholder:text-slate-400 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-court-600 focus:border-court-600 resize-y font-normal font-sans"
         />

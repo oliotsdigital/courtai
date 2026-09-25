@@ -95,22 +95,18 @@ export async function POST(request: NextRequest) {
 
     openAiFormData.append("file", audioFile, filename);
     openAiFormData.append("model", model);
-    openAiFormData.append("response_format", "json");
+    openAiFormData.append("response_format", "verbose_json");
     openAiFormData.append("temperature", "0");
 
-    // Explicit language selection prevents Whisper from hallucinating or misidentifying
-    // Keep prompts minimal and non-repetitive so Whisper doesn't skip sentences or hallucinate prompt words on silence
+    // Explicit language selection
+    // In "combined" mode, DO NOT pass any prompt so Whisper never repeats prompt text on silence!
     if (languageParam === "en") {
       openAiFormData.append("language", "en");
-      openAiFormData.append("prompt", "Court legal proceedings and dictation.");
     } else if (languageParam === "mr") {
       openAiFormData.append("language", "mr");
-      openAiFormData.append("prompt", "न्यायालयीन कामकाज व आदेश डिक्टेशन.");
     } else if (languageParam === "hi") {
       openAiFormData.append("language", "hi");
-      openAiFormData.append("prompt", "न्यायालयीन कार्यवाही एवं आदेश डिक्टेशन.");
     }
-    // If language is "auto" or unspecified, do not append language parameter, allowing Whisper to auto-detect
 
     // Direct native fetch to OpenAI Whisper API - 100% compatible with Cloudflare Workers runtime
     const apiRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
@@ -123,6 +119,12 @@ export async function POST(request: NextRequest) {
 
     const data = (await apiRes.json()) as {
       text?: string;
+      language?: string;
+      segments?: Array<{
+        text?: string;
+        no_speech_prob?: number;
+        avg_logprob?: number;
+      }>;
       error?: { message?: string; type?: string; code?: string };
     };
 
@@ -147,11 +149,72 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Filter silence using Whisper segment no_speech_prob
+    let validSegmentsText = "";
+    if (data.segments && Array.isArray(data.segments) && data.segments.length > 0) {
+      const speechSegments = data.segments.filter((seg) => {
+        // Discard segment if Whisper confidence indicates high silence probability
+        if (typeof seg.no_speech_prob === "number" && seg.no_speech_prob > 0.45) {
+          return false;
+        }
+        if (typeof seg.avg_logprob === "number" && seg.avg_logprob < -1.15) {
+          return false;
+        }
+        return true;
+      });
+      validSegmentsText = speechSegments.map((s) => s.text || "").join(" ").trim();
+    } else {
+      validSegmentsText = (data.text || "").trim();
+    }
+
+    const rawText = validSegmentsText.trim();
+    const detectedLanguage = (data.language || "").toLowerCase().trim();
+
+    // Whitelist check: ONLY English, Marathi, or Hindi allowed
+    const ALLOWED_LANGUAGES = new Set(["english", "en", "marathi", "mr", "hindi", "hi"]);
+    if (detectedLanguage && !ALLOWED_LANGUAGES.has(detectedLanguage)) {
+      console.warn(`[Whisper Discard]: Non-target language detected: "${detectedLanguage}".`);
+      return NextResponse.json({
+        text: "",
+        rawText: "",
+        model,
+        language: detectedLanguage,
+        rejected: true,
+      });
+    }
+
+    // Hallucination blacklist filter (e.g. "Thanks for watching", YouTube artifacts, prompt repeats)
+    const HALLUCINATION_REGEX =
+      /thanks?\s+for\s+watching|thank\s+you\s+for\s+watching|please\s+subscribe|like\s+and\s+subscribe|see\s+you\s+in\s+the\s+next\s+video|do\s+not\s+transcribe|\[music\]|\[applause\]|\(music\)|\(applause\)|बघितल्याबद्दल\s+धन्यवाद|पाहिल्याबद्दल\s+धन्यवाद|देखने\s+के\s+लिए\s+धन्यवाद/i;
+
+    if (!rawText || HALLUCINATION_REGEX.test(rawText)) {
+      return NextResponse.json({
+        text: "",
+        rawText: "",
+        model,
+        language: detectedLanguage || "unknown",
+        rejected: true,
+      });
+    }
+
+    // Reject non-target scripts (e.g. Arabic, Cyrillic, Chinese, etc.)
+    const foreignScriptRegex =
+      /[\p{Script=Arabic}\p{Script=Cyrillic}\p{Script=Han}\p{Script=Hangul}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Hebrew}\p{Script=Greek}]/u;
+    if (foreignScriptRegex.test(rawText)) {
+      return NextResponse.json({
+        text: "",
+        rawText: "",
+        model,
+        language: detectedLanguage || "unknown",
+        rejected: true,
+      });
+    }
+
     return NextResponse.json({
-      text: data.text || "",
-      rawText: data.text || "",
+      text: rawText,
+      rawText: rawText,
       model,
-      language: languageParam || "auto",
+      language: detectedLanguage || languageParam || "auto",
     });
   } catch (error: unknown) {
     console.error("[Transcription Route Error]:", error);

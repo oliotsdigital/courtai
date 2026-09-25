@@ -214,39 +214,39 @@ export function wordsToNumber(wordsStr: string): string | null {
 export function normalizeSectionNumbers(text: string): string {
   let result = text;
 
-  // 1. Convert any Devanagari numerals after 'कलम', 'धारा', or 'section'
+  // 1. Convert Devanagari numerals after 'कलम' or 'धारा' to standard Latin numerals while staying in Marathi/Hindi
   result = result.replace(/(कलम\s+)([०-९]+)/gi, (_, prefix, digits) => {
     const latin = devanagariToLatinDigits(digits);
-    return `Section ${latin} (कलम ${latin})`;
+    return `कलम ${latin}`;
   });
 
   result = result.replace(/(धारा\s+)([०-९]+)/gi, (_, prefix, digits) => {
     const latin = devanagariToLatinDigits(digits);
-    return `Section ${latin} (धारा ${latin})`;
+    return `धारा ${latin}`;
   });
 
-  // 2. Marathi spoken section names
+  // 2. Marathi spoken section names (e.g. "कलम एकशे चव्वेचाळीस" -> "कलम 144")
   for (const [marathiPhrase, sectionNum] of Object.entries(MARATHI_LEGAL_SECTIONS)) {
     const reg = new RegExp(`कलम\\s+${marathiPhrase}`, "gi");
-    result = result.replace(reg, `Section ${sectionNum} (कलम ${sectionNum})`);
+    result = result.replace(reg, `कलम ${sectionNum}`);
   }
 
-  // 3. Hindi spoken section names
+  // 3. Hindi spoken section names (e.g. "धारा एक सौ चौवालीस" -> "धारा 144")
   for (const [hindiPhrase, sectionNum] of Object.entries(HINDI_LEGAL_SECTIONS)) {
     const reg = new RegExp(`धारा\\s+${hindiPhrase}`, "gi");
-    result = result.replace(reg, `Section ${sectionNum} (धारा ${sectionNum})`);
+    result = result.replace(reg, `धारा ${sectionNum}`);
   }
 
-  // 4. Hindi & Marathi digits after धारा or कलम
+  // 4. Normalize digits after धारा or कलम
   result = result.replace(/\bधारा\s+(\d+[a-zA-Z]?)/gi, (_, num) => {
-    return `Section ${num} (धारा ${num})`;
+    return `धारा ${num}`;
   });
 
   result = result.replace(/\bकलम\s+(\d+[a-zA-Z]?)/gi, (_, num) => {
-    return `Section ${num} (कलम ${num})`;
+    return `कलम ${num}`;
   });
 
-  // 5. English "section <words or numbers>"
+  // 5. English "section <words or numbers>" -> "Section <digits>"
   const sectionRegex = /\bsection\s+([a-zA-Z0-9\s\-]+?)(?=[,\.\?!;\n]|\s+of\b|\s+cpc\b|\s+crpc\b|\s+ipc\b|\s+read\b|\s+and\b|\s+अन्वये\b|\s+के\s+तहत\b|$)/gi;
 
   result = result.replace(sectionRegex, (match, words) => {
@@ -306,7 +306,11 @@ export function normalizeVoicePunctuation(text: string): string {
 }
 
 /**
- * Deterministic legal terminology mappings for English and Marathi.
+ * Deterministic legal terminology mappings.
+ * Strictly preserves the language of origin:
+ * English speech stays in English with standard court capitalization.
+ * Marathi speech stays in Marathi with standard court spelling.
+ * No cross-language translation brackets.
  */
 const LEGAL_TERMS: Array<[RegExp, string]> = [
   // Courts & Honors (English)
@@ -320,11 +324,11 @@ const LEGAL_TERMS: Array<[RegExp, string]> = [
   [/\bdistrict\s+court\b/gi, "District Court"],
   [/\bsessions\s+court\b/gi, "Sessions Court"],
 
-  // Courts & Honors (Marathi & Hindi)
-  [/(?:मा\.\s*न्यायालय|माननीय\s+न्यायालय|मा\.\s*कोर्ट|माननीय\s+कोर्ट)/gi, "Hon'ble Court (मा. न्यायालय)"],
-  [/(?:मा\.\s*उच्च\s+न्यायालय|माननीय\s+उच्च\s+न्यायालय)/gi, "Hon'ble High Court (मा. उच्च न्यायालय)"],
-  [/(?:मा\.\s*सर्वोच्च\s+न्यायालय|माननीय\s+सर्वोच्च\s+न्यायालय)/gi, "Hon'ble Supreme Court (मा. सर्वोच्च न्यायालय)"],
-  [/(?:मा\.\s*जिल्हा\s+न्यायालय|माननीय\s+जिल्हा\s+न्यायालय)/gi, "District Court (मा. जिल्हा न्यायालय)"],
+  // Courts & Honors (Marathi - standard court spelling)
+  [/(?:माननीय\s+न्यायालय|मा\.\s*कोर्ट|माननीय\s+कोर्ट)/gi, "मा. न्यायालय"],
+  [/(?:माननीय\s+उच्च\s+न्यायालय)/gi, "मा. उच्च न्यायालय"],
+  [/(?:माननीय\s+सर्वोच्च\s+न्यायालय)/gi, "मा. सर्वोच्च न्यायालय"],
+  [/(?:माननीय\s+जिल्हा\s+न्यायालय)/gi, "मा. जिल्हा न्यायालय"],
 
   // Statutes & Codes (English)
   [/\b(?:the\s+)?code\s+of\s+civil\s+procedure\b/gi, "CPC"],
@@ -341,17 +345,6 @@ const LEGAL_TERMS: Array<[RegExp, string]> = [
   [/\bbharatiya\s+nyaya\s+sanhita\b/gi, "BNS"],
   [/\bbharatiya\s+nagarik\s+suraksha\s+sanhita\b/gi, "BNSS"],
   [/\bbharatiya\s+sakshya\s+adhiniyam\b/gi, "BSA"],
-
-  // Statutes & Codes (Marathi & Hindi)
-  [/दिवाणी\s+प्रक्रिया\s+संहिता/gi, "CPC (दिवाणी प्रक्रिया संहिता)"],
-  [/सिविल\s+प्रक्रिया\s+संहिता/gi, "CPC (सिविल प्रक्रिया संहिता)"],
-  [/फौजदारी\s+प्रक्रिया\s+संहिता/gi, "CrPC (फौजदारी प्रक्रिया संहिता)"],
-  [/दंड\s+प्रक्रिया\s+संहिता/gi, "CrPC (दंड प्रक्रिया संहिता)"],
-  [/भारतीय\s+दंड\s+संहिता/gi, "IPC (भारतीय दंड संहिता)"],
-  [/भारतीय\s+पुरावा\s+कायदा/gi, "Indian Evidence Act (भारतीय पुरावा कायदा)"],
-  [/भारतीय\s+शस्त्र\s+कायदा/gi, "Arms Act (भारतीय शस्त्र कायदा)"],
-  [/निगोशिएबल\s+इन्स्ट्रुमेंट\s+ॲक्ट/gi, "NI Act (निगोशिएबल इन्स्ट्रुमेंट ॲक्ट)"],
-  [/पोलीस\s+कायदा/gi, "Police Act (पोलीस कायदा)"],
 
   // Parties & Roles (English)
   [/\bapplicant\b/gi, "Applicant"],
@@ -373,20 +366,7 @@ const LEGAL_TERMS: Array<[RegExp, string]> = [
   [/\bstenographer\b/gi, "Stenographer"],
   [/\bcourt\s+master\b/gi, "Court Master"],
 
-  // Parties & Roles (Marathi & Hindi)
-  [/अर्जदार(?=[\s\.,]|$)/gi, "Applicant (अर्जदार)"],
-  [/आवेदक(?=[\s\.,]|$)/gi, "Applicant (आवेदक)"],
-  [/(?:सामनावाला|गैरअर्जदार|प्रतिवादी|अनावेदक)(?=[\s\.,]|$)/gi, "Respondent (प्रतिवादी)"],
-  [/याचिकाकर्ता(?=[\s\.,]|$)/gi, "Petitioner (याचिकाकर्ता)"],
-  [/अपीलकर्ता(?=[\s\.,]|$)/gi, "Appellant (अपीलकर्ता)"],
-  [/फिर्यादी(?=[\s\.,]|$)/gi, "Complainant (फिर्यादी)"],
-  [/मयत(?=[\s\.,]|$)/gi, "Deceased (मयत)"],
-  [/शिरस्तेदार(?=[\s\.,]|$)/gi, "Court Master (शिरस्तेदार)"],
-  [/तपासी\s+अधिकारी(?=[\s\.,]|$)/gi, "Investigating Officer (तपासी अधिकारी)"],
-  [/कार्यकारी\s+दंडाधिकारी(?=[\s\.,]|$)/gi, "Executive Magistrate (कार्यकारी दंडाधिकारी)"],
-  [/प्रथम\s+वर्ग\s+न्यायदंडाधिकारी(?=[\s\.,]|$)/gi, "JMFC (प्रथम वर्ग न्यायदंडाधिकारी)"],
-
-  // Legal Counsel & Phrasing (English & Marathi)
+  // Legal Counsel & Phrasing (English)
   [/\blearned\s+additional\s+public\s+prosecutor\b/gi, "Learned APP"],
   [/\blearned\s+app\b/gi, "Learned APP"],
   [/\badditional\s+public\s+prosecutor\b/gi, "Additional Public Prosecutor"],
@@ -395,77 +375,38 @@ const LEGAL_TERMS: Array<[RegExp, string]> = [
   [/\bdefense\s+counsel\b/gi, "Defense Counsel"],
   [/\blearned\s+counsel\b/gi, "Learned Counsel"],
   [/\blearned\s+advocate\b/gi, "Learned Advocate"],
-  [/(?:सरकारी\s+वकील)/gi, "Public Prosecutor (सरकारी वकील)"],
-  [/(?:अतिरिक्त\s+सरकारी\s+वकील)/gi, "Learned APP (अतिरिक्त सरकारी वकील)"],
-  [/(?:बचाव\s+पक्षाचे\s+वकील)/gi, "Defense Counsel (बचाव पक्षाचे वकील)"],
-  [/(?:विद्वान\s+वकील|विद्वान\s+अधिवक्ता)/gi, "Learned Advocate"],
 
-  // Courtroom Trial & Evidentiary Procedure
+  // Courtroom Trial & Evidentiary Procedure (English)
   [/\bexamination[\s\-]in[\s\-]chief\b/gi, "Examination-in-Chief"],
   [/\bcross[\s\-]examination\b/gi, "Cross-Examination"],
   [/\bre[\s\-]examination\b/gi, "Re-examination"],
-  [/सरतपासणी(?=[\s\.,\-]|$)/gi, "Examination-in-Chief (सरतपासणी)"],
-  [/उलटतपासणी(?=[\s\.,\-]|$)/gi, "Cross-Examination (उलटतपासणी)"],
-  [/फेरतपासणी(?=[\s\.,\-]|$)/gi, "Re-examination (फेरतपासणी)"],
-
   [/\bobjection\s+overruled\b/gi, "Objection Overruled"],
   [/\bobjection\s+sustained\b/gi, "Objection Sustained"],
-  [/आक्षेप\s+फेटाळण्यात\s+आला/gi, "Objection Overruled (आक्षेप फेटाळण्यात आला)"],
-
   [/\bjudicial\s+custody\b/gi, "Judicial Custody"],
   [/\bpolice\s+custody\s+remand\b/gi, "Police Custody Remand (PCR)"],
   [/\bpolice\s+custody\b/gi, "Police Custody"],
-  [/न्यायालयीन\s+कोठडी/gi, "Judicial Custody (न्यायालयीन कोठडी)"],
-  [/पोलीस\s+कोठडी/gi, "Police Custody (पोलीस कोठडी)"],
-
   [/\bbail\s+bond\b/gi, "Bail Bond"],
-  [/जामीन\s+मुचलका/gi, "Bail Bond (जामीन मुचलका)"],
   [/\bbailable\s+warrant\b/gi, "Bailable Warrant"],
-  [/जामीनपात्र\s+वॉरंट/gi, "Bailable Warrant (जामीनपात्र वॉरंट)"],
   [/\bnon[\s\-]bailable\s+warrant\b/gi, "Non-Bailable Warrant"],
-  [/अजामीनपात्र\s+वॉरंट/gi, "Non-Bailable Warrant (अजामीनपात्र वॉरंट)"],
-
   [/\bspot\s+panchnama\b/gi, "Spot Panchnama"],
-  [/घटनास्थळ\s+पंचनामा/gi, "Spot Panchnama (घटनास्थळ पंचनामा)"],
   [/\bseizure\s+panchnama\b/gi, "Seizure Panchnama"],
-  [/जप्ती\s+पंचनामा/gi, "Seizure Panchnama (जप्ती पंचनामा)"],
   [/\brecovery\s+panchnama\b/gi, "Recovery Panchnama"],
   [/\bdisclosure\s+statement\b/gi, "Disclosure Statement"],
-  [/प्रकटीकरण\s+जबाब/gi, "Disclosure Statement (प्रकटीकरण जबाब)"],
-
   [/\btest\s+identification\s+parade\b/gi, "Test Identification Parade (TIP)"],
   [/\btip\s+memo\b/gi, "TIP Memo"],
-  [/ओळख\s+परेड/gi, "TIP (ओळख परेड)"],
-
   [/\bchargesheet\b|\bcharge[\s\-]sheet\b/gi, "Charge-Sheet"],
-  [/दोषारोपपत्र/gi, "Charge-Sheet (दोषारोपपत्र)"],
-
   [/\bfirst\s+information\s+report\b/gi, "FIR"],
-  [/(?:प्रथम\s+खबरी\s+अहवाल|एफआयआर|एफ\.आय\.आर\.)/gi, "FIR"],
   [/\bforensic\s+science\s+laboratory\b/gi, "FSL"],
-  [/न्यायवैद्यक\s+विज्ञान\s+प्रयोगशाळा/gi, "FSL (न्यायवैद्यक विज्ञान प्रयोगशाळा)"],
   [/\bballistics?\s+report\b/gi, "Ballistics Report"],
-  [/बॅलेस्टिक्स\s+अहवाल|बॅलेस्टिक्स\s+रिपोर्ट/gi, "Ballistics Report (बॅलेस्टिक्स अहवाल)"],
   [/\bpost[\s\-]mortem\s+report\b/gi, "Post-Mortem Report"],
-  [/शवविच्छेदन\s+अहवाल/gi, "Post-Mortem Report (शवविच्छेदन अहवाल)"],
-
   [/\bmalkhana\b/gi, "Malkhana"],
-  [/मालखाना/gi, "Malkhana (मालखाना)"],
   [/\bchain\s+of\s+custody\b/gi, "Chain of Custody"],
-  [/ताब्याची\s+साखळी/gi, "Chain of Custody (ताब्याची साखळी)"],
-
   [/\bsessions\s+case\s+number\b|\bsessions\s+case\s+no\.?\b/gi, "Sessions Case No."],
-  [/सत्र\s+खटला\s+क्रमांक/gi, "Sessions Case No. (सत्र खटला क्रमांक)"],
-
   [/\binterim\s+application\b/gi, "IA"],
-  [/(?:अंतरिम\s+अर्ज|आय\.ए\.)/gi, "IA (Interim Application)"],
   [/\bspecial\s+leave\s+petition\b/gi, "SLP"],
   [/\bwrit\s+petition\b/gi, "Writ Petition"],
-  [/(?:रिट\s+याचिका)/gi, "Writ Petition"],
   [/\bstatus\s+quo\b/gi, "status quo"],
-  [/(?:यथास्थिती)/gi, "Status Quo (यथास्थिती)"],
   [/\bprima\s+facie\b/gi, "prima facie"],
-  [/(?:प्रथमदर्शनी)/gi, "Prima Facie (प्रथमदर्शनी)"],
 ];
 
 export function normalizeLegalTerms(text: string): string {
@@ -514,7 +455,56 @@ export function formatTypography(text: string): string {
 }
 
 /**
+ * Known Whisper silence/ambient hallucination patterns, YouTube artifacts, and prompt repeats.
+ */
+export const HALLUCINATION_PATTERNS: RegExp[] = [
+  /thanks?\s+for\s+watching/i,
+  /thank\s+you\s+for\s+watching/i,
+  /thank\s+you\s+very\s+much/i,
+  /please\s+subscribe/i,
+  /subscribe\s+to/i,
+  /like\s+and\s+subscribe/i,
+  /see\s+you\s+in\s+the\s+next\s+video/i,
+  /do\s+not\s+transcribe/i,
+  /court\s+proceedings\s+in\s+english/i,
+  /court\s+legal\s+proceedings/i,
+  /\[music\]/i,
+  /\[applause\]/i,
+  /\[silence\]/i,
+  /\(music\)/i,
+  /\(applause\)/i,
+  /\(silence\)/i,
+  /बघितल्याबद्दल\s+धन्यवाद/i,
+  /पाहिल्याबद्दल\s+धन्यवाद/i,
+  /देखने\s+के\s+लिए\s+धन्यवाद/i,
+];
+
+export function isHallucination(text: string): boolean {
+  const clean = text.trim();
+  if (!clean) return true;
+  for (const pattern of HALLUCINATION_PATTERNS) {
+    if (pattern.test(clean)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Ensures text only belongs to English, Marathi, or Hindi.
+ * Rejects any foreign scripts (e.g. Arabic, Cyrillic, Chinese, Japanese, Korean, Thai, Hebrew).
+ */
+export function isAllowedCourtLanguageText(text: string): boolean {
+  if (!text || !text.trim()) return false;
+  if (isHallucination(text)) return false;
+  const foreignScript =
+    /[\p{Script=Arabic}\p{Script=Cyrillic}\p{Script=Han}\p{Script=Hangul}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Hebrew}\p{Script=Greek}]/u;
+  return !foreignScript.test(text);
+}
+
+/**
  * Main legal normalizer entry point.
+ * Strictly limited to English, Marathi, and Hindi court transcription.
  * @param text The input transcription text
  * @param mode "court_draft" | "verbatim" | "translate"
  */
@@ -524,6 +514,11 @@ export function normalizeLegalTranscript(
 ): string {
   if (!text) return "";
 
+  // Reject hallucinations & foreign non-target language scripts
+  if (!isAllowedCourtLanguageText(text)) {
+    return "";
+  }
+
   if (mode === "verbatim" || mode === "translate") {
     // In verbatim/translate mode, keep minimal processing
     return text.replace(/[ \t]+/g, " ").trim();
@@ -532,10 +527,10 @@ export function normalizeLegalTranscript(
   // 1. Voice punctuation commands in English & Marathi ("full stop" / "पूर्णविराम" -> ".")
   let processed = normalizeVoicePunctuation(text);
 
-  // 2. Section number normalization ("section one forty four" / "कलम १४४" -> "Section 144")
+  // 2. Section number normalization ("section one forty four" / "कलम १४४" -> "Section 144" / "कलम 144")
   processed = normalizeSectionNumbers(processed);
 
-  // 3. Legal terms ("honourable court" / "मा. न्यायालय" -> "Hon'ble Court", "cpc" -> "CPC")
+  // 3. Legal terms ("honourable court" -> "Hon'ble Court", "cpc" -> "CPC", "मा. न्यायालय" -> "मा. न्यायालय")
   processed = normalizeLegalTerms(processed);
 
   // 4. Clean spacing, punctuation attachments, and sentence capitalization
